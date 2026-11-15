@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mode="idle">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="One dinosaur. One jump. An ordinary offline page unfolds into an impossible three-dimensional world.">
-  <meta name="theme-color" content="#f7f7f7">
+  <meta name="theme-color" content="#ffffff">
   <meta property="og:site_name" content="Tap the Dino">
   <meta property="og:title" content="Tap the Dino">
   <meta property="og:description" content="Keep jumping. The world has other plans.">
@@ -14,9 +14,29 @@
   <meta property="og:url" content="https://tapthedino.com/">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./arcade.css">
-  <link rel="stylesheet" href="styles.css?v=40">
+  <link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
+  <section id="chrome-opening" aria-label="Tap the Dino">
+    <div class="chrome-body">
+      <div class="chrome-wrapper">
+        <div class="chrome-icon" aria-hidden="true"></div>
+        <div class="chrome-message">
+          <h1><span id="chrome-instruction">Press space to play</span></h1>
+          <div class="chrome-suggestions">
+            <p>Try:</p>
+            <ul>
+              <li>Checking the network cables, modem, and router</li>
+              <li>Reconnecting to Wi-Fi</li>
+            </ul>
+          </div>
+          <div class="chrome-code">ERR_INTERNET_DISCONNECTED</div>
+        </div>
+        <div class="chrome-footer" aria-hidden="true"></div>
+        <img class="chrome-dino" src="assets/chrome-idle.png" srcset="assets/chrome-idle.png 1x, assets/chrome-idle@2x.png 2x" width="44" height="150" alt="">
+      </div>
+    </div>
+  </section>
   <canvas id="game" aria-label="Dinosaur transformation game. Space or tap to jump."></canvas>
   <section id="offline" aria-label="Offline page">
     <h1>No internet</h1>
@@ -37,6 +57,6 @@
   <script src="art.js?v=40"></script>
   <script src="renderer.js?v=40"></script>
   <script src="audio.js?v=40"></script>
-  <script src="game.js?v=40"></script>
+  <script src="game.js?v=41"></script>
 </body>
 </html>

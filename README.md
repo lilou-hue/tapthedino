@@ -33,3 +33,15 @@ To bring in game updates, copy the game JS/CSS/assets, review any HTML changes,
 and preserve the standalone paths and URLs. Shared arcade code keeps the original
 `no-internet` internal game ID. Scores/settings are browser-local and separate
 from slayplay.io because this site has its own origin.
+
+## Opening-screen fidelity
+
+Before play, the page reproduces the current Chromium offline screen with
+responsive desktop/touch instructions and light/dark colours. A separate idle
+layer keeps this presentation isolated from the existing game renderer. The
+first Space/Up/tap starts the original game and removes the layer.
+
+The Chrome-derived artwork/layout attribution is in `THIRD_PARTY_NOTICES.md`.
+Browser versions, operating-system fonts and locale may differ; the reference
+is the English offline page in Chrome 157 on Linux. Later gameplay deliberately
+transforms and is not a copy of Chrome's runner.

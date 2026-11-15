@@ -1,6 +1,13 @@
 (() => {
   'use strict';
   const game = document.getElementById('game');
+  // Match Chrome's current offline instruction, including touch/hybrid devices.
+  const instruction = document.getElementById('chrome-instruction');
+  if(navigator.maxTouchPoints>0) instruction.textContent=matchMedia('(hover: hover)').matches
+    ? 'Tap the dino or press space to play' : 'Tap the dino to play';
+  const platform = navigator.platform;
+  if(platform.startsWith('Mac')) document.getElementById('chrome-opening').style.fontFamily='"Helvetica Neue", Helvetica, Arial, sans-serif';
+  else if(platform.startsWith('Win')) document.getElementById('chrome-opening').style.fontFamily='"Segoe UI", Tahoma, sans-serif';
   const offline = document.getElementById('offline');
   const hint = document.getElementById('hint');
   const chapter = document.getElementById('chapter');
@@ -49,6 +56,8 @@
       echoes:1, completion:null, reported:false, debugAssisted:false, reducedMotion,
       run:++runSerial, previousBest:Number(stored(bestKey))||0
     };
+    document.documentElement.dataset.mode=s.mode;
+    document.getElementById('chrome-opening').hidden=s.mode!=='idle';
     accumulator=0; last=performance.now();bankState();healthState();
     hint.hidden=startNow; offline.style.opacity='1';
     chapter.textContent=''; document.documentElement.dataset.spatial='false';document.documentElement.dataset.scene='offline';
