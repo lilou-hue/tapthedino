@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="One dinosaur. One jump. An ordinary offline page unfolds into an impossible three-dimensional world.">
+  <meta name="theme-color" content="#f7f7f7">
+  <meta property="og:site_name" content="Tap the Dino">
+  <meta property="og:title" content="Tap the Dino">
+  <meta property="og:description" content="Keep jumping. The world has other plans.">
+  <meta property="og:type" content="website">
+  <title>Tap the Dino</title>
+  <link rel="canonical" href="https://tapthedino.com/">
+  <meta property="og:url" content="https://tapthedino.com/">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./arcade.css">
+  <link rel="stylesheet" href="styles.css?v=40">
+</head>
+<body>
+  <canvas id="game" aria-label="Dinosaur transformation game. Space or tap to jump."></canvas>
+  <section id="offline" aria-label="Offline page">
+    <h1>No internet</h1>
+    <p>The connection seems to have disappeared.</p>
+    <p>The dinosaur is still here.</p>
+    <p class="code">ERR_INTERNET_DISCONNECTED</p>
+  </section>
+  <div id="hint">Space or tap to jump<br>3 hearts · +1 heart per completed lap</div>
+  <div id="chapter" aria-live="polite"></div>
+  <div id="health" role="img" aria-live="polite" aria-label="3 of 3 hearts"><span class="hearts" aria-hidden="true">♥♥♥</span><span class="health-cue" aria-hidden="true"></span></div>
+  <nav id="bar" aria-label="Game controls">
+    <a id="home" href="https://slayplay.io/arcade/" title="Back to SlayPlay" aria-label="Back to SlayPlay">←</a>
+    <button id="again" type="button" title="Start again" aria-label="Start again">↻</button>
+    <button id="bank" type="button" disabled title="Finish and keep this score">Bank score</button>
+    <button id="mute" type="button" title="Sound" aria-label="Sound">♪</button>
+  </nav>
+  <script src="./arcade.js"></script>
+  <script src="art.js?v=40"></script>
+  <script src="renderer.js?v=40"></script>
+  <script src="audio.js?v=40"></script>
+  <script src="game.js?v=40"></script>
+</body>
+</html>
