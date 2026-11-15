@@ -59,7 +59,7 @@ html[data-medium="pixel-16"] #chapter { color: #fff3d0; background: #253d72; pad
 /* Chrome's offline opening. Layout adapted from Chromium net_error.css and
    interstitial_common.css; sprite from Chromium's offline runner.
    See THIRD_PARTY_NOTICES.md. Gameplay keeps its existing full-screen renderer. */
-#chrome-opening { position: fixed; inset: 0; z-index: 10; overflow: auto; pointer-events: none; background: #fff; color: #5f6368; font: 15px/1.55 "sans", Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+#chrome-opening { color-scheme: light dark; position: fixed; inset: 0; z-index: 10; overflow: auto; pointer-events: none; background: #fff; color: #5f6368; font: 15px/1.55 "sans", Arial, sans-serif; -webkit-text-size-adjust: 100%; }
 #chrome-opening[hidden] { display: none; }
 #chrome-opening .chrome-body { margin: 8px; }
 #chrome-opening .chrome-wrapper { position: relative; box-sizing: border-box; width: 100%; max-width: 600px; margin: 0 auto; padding-top: 100px; }
@@ -70,7 +70,7 @@ html[data-medium="pixel-16"] #chapter { color: #fff3d0; background: #253d72; pad
 #chrome-opening ul { margin: 0 0 1em; padding-left: 40px; }
 #chrome-opening .chrome-code { font-size: .8em; margin-top: 12px; text-transform: uppercase; }
 #chrome-opening .chrome-dino { position: absolute; top: 35px; width: 44px; height: 150px; image-rendering: pixelated; }
-html[data-mode="idle"] :is(#bar, #health, #hint, #chapter, #offline, .arc-quest-toast) { visibility: hidden; }
+html[data-mode="idle"] :is(#bar, #health, #hint, #chapter, #offline, .arc-quest-toast, .arc-challenge-banner) { visibility: hidden; }
 html[data-mode="idle"] #game { opacity: 0; }
 @media (max-width: 640px), (max-height: 640px) { #chrome-opening h1 { margin-bottom: 15px; } }
 @media (max-width: 700px) { #chrome-opening .chrome-wrapper { padding-left: 10%; padding-right: 10%; } }
