@@ -49,11 +49,39 @@
       this.stats = { polygons: 0, renderMs: 0, maxPolygons: 0, assets:{}, budgets:{scenery:2000,gameplay:2600,used:0,reservedGameplay:600,packCap:40}, transition:{} };
       this.solidView=Array.from({length:84},()=>[0,0,0]);
       this.skyCanvas=null;this.skyImage=null;
+      // Opening handoff: Chromium sprite sheets (plain and dark-inverted), page theme and
+      // an optional integer backing ratio matching the runner canvas while it is drawn here.
+      this.chrome={sheets:{},hidpi:false};this.theme={dark:false,page:[255,255,255],ink:[83,83,83]};this.native=null;
       this.resize();
+    }
+    setChromeSheet(key,image) {
+      const dark=document.createElement('canvas');dark.width=image.naturalWidth;dark.height=image.naturalHeight;
+      const c=dark.getContext('2d');c.drawImage(image,0,0);
+      const data=c.getImageData(0,0,dark.width,dark.height);
+      for(let i=0;i<data.data.length;i+=4){data.data[i]=255-data.data[i];data.data[i+1]=255-data.data[i+1];data.data[i+2]=255-data.data[i+2];}
+      c.putImageData(data,0,0);
+      this.chrome.sheets[key]={light:image,dark};
+    }
+    setNative(ratio) {
+      if(ratio && innerWidth*innerHeight*ratio*ratio>9000000)ratio=null;
+      if(ratio===this.native)return;
+      const before=this.dpr;this.native=ratio;
+      // Same backing ratio (e.g. 1x displays): keep the existing buffers, no reallocation.
+      if(this.dprFor()===before && this.w===innerWidth && this.h===innerHeight)return;
+      this.resize();
+    }
+    dprFor() {
+      return this.native || Math.min(devicePixelRatio || 1, 1.6, Math.sqrt(4000000 / (innerWidth * innerHeight)));
+    }
+    scheduleSky() {
+      // Warm the static sky off the critical frame (idle time), never mid-handoff.
+      if(this.skyPending)return;this.skyPending=true;
+      const run=()=>{this.skyPending=false;if(this.art.status==='ready'&&!this.native)this.prepareSky();};
+      if(window.requestIdleCallback)requestIdleCallback(run,{timeout:1500});else setTimeout(run,200);
     }
     resize() {
       this.w = innerWidth; this.h = innerHeight;
-      this.dpr = Math.min(devicePixelRatio || 1, 1.6, Math.sqrt(4000000 / (this.w * this.h)));
+      this.dpr = this.dprFor();
       this.canvas.width = Math.max(1,Math.floor(this.w * this.dpr));
       this.canvas.height = Math.max(1,Math.floor(this.h * this.dpr));
       this.ctx.setTransform(this.canvas.width/this.w, 0, 0, this.canvas.height/this.h, 0, 0);
@@ -103,7 +131,9 @@
       const target=[0,mix(0,pose[3],b),mix(0,pose[4],b)];
       const eye=[Math.sin(angle)*distance,mix(0,pose[2],b),target[2]-Math.cos(angle)*distance];
       const forward=norm(sub(target,eye)),right=norm(cross(forward,[0,1,0])),up=cross(right,forward);
-      const scale=mix(this.w<600?23:28,Math.min(this.w*1.2,this.h*.94)/24,b);
+      // Lap one's flat view is anchored to the live Chromium runner (hero centre, ground row).
+      const a=s.flatAnchor;this.anchor=a;
+      const scale=mix(a?a.scale:this.w<600?23:28,Math.min(this.w*1.2,this.h*.94)/24,b);
       const roll=s.reducedMotion?Math.sin(s.worldRoll)*.18:s.worldRoll;
       this.rollCos=Math.cos(roll);this.rollSin=Math.sin(roll);
       const fold=smooth(s.sceneTime/2.0);
@@ -111,7 +141,7 @@
       const foldAngle=s.reducedMotion?0:fold*2.1;
       this.foldCos=Math.cos(foldAngle);this.foldSin=Math.sin(foldAngle);
       this.cam={eye,forward,right,up,b,focal:scale*24,
-        cx:mix(this.w*(this.w<600?.19:.22),this.w*.5,b),cy:mix(this.h*.70,this.h*pose[5],b)};
+        cx:mix(a?a.cx:this.w*(this.w<600?.19:.22),this.w*.5,b),cy:mix(a?a.cy:this.h*.70,this.h*pose[5],b)};
     }
     transform(p) {
       const s=this.s;let [x,y,z]=p;
@@ -338,7 +368,55 @@
         if(worldIndex%4===0)this.sprite(this.art.frames.mushroom,side*(15+worldIndex%9),0,z+9,size*2.2,size*2.2);
       }
     }
+    chromeImage() {
+      const set=this.chrome.sheets[this.chrome.hidpi?'2x':'1x']||this.chrome.sheets['1x']||this.chrome.sheets['2x'];
+      if(!set)return null;
+      return {image:this.theme.dark?set.dark:set.light,k:set.light.naturalWidth>2000?2:1};
+    }
+    chromeHero(s,options) {
+      const sheet=this.chromeImage(),a=this.anchor;
+      if(!sheet||!a)return;
+      const k=sheet.k,frame=s.player.grounded?(s.heroFrame??88):0;
+      // Rows 93..140 of the 150px runner; ground (world y=0) is runner row 134.
+      this.sprite({image:sheet.image,rect:[frame*k+(k===2?1678:848),2,44*k,47*k],anchor:[.5,41/47],billboard:true},
+        0,options.y??s.player.height,0,44/a.scale,47/a.scale);
+    }
+    chromeHorizon(s) {
+      const sheet=this.chromeImage(),a=this.anchor;
+      if(!sheet||!a)return;
+      const k=sheet.k,unit=a.scale,rupture=s.scene==='rupture';
+      const origin=a.heroX+22, scroll=(s.distance-(a.distance||0))*unit;
+      const [zMin,zMax]=this.chromeSpan(s),uMin=origin+zMin*unit,uMax=origin+zMax*unit;
+      const base=Math.min(a.horizonX[0],a.horizonX[1])-scroll;
+      const first=a.horizonX[0]<=a.horizonX[1]?0:1;
+      const top=7/unit,bottom=-5/unit,step=rupture?8:40;
+      this.layer=0;
+      for(let j=Math.floor((uMin-base)/600);j<=Math.floor((uMax-base)/600);j++) {
+        const start=base+j*600,src=j===0?a.horizonSrc[first]:j===1?a.horizonSrc[1-first]:(Math.sin(j*91.7)*43758.5453%1+1)%1>.5?600:0;
+        // Interior slices stay on whole runner pixels; only the escaping ends are partial.
+        for(let n=Math.max(0,Math.floor((uMin-start)/step));start+n*step<Math.min(start+600,uMax);n++) {
+          const u=Math.max(start+n*step,uMin),v=Math.min(start+(n+1)*step,start+600,uMax);
+          if(v<=u)continue;
+          const za=(u-origin)/unit,zb=(v-origin)/unit;
+          const ra=rupture?this.ripple(s,za):0,rb=rupture?this.ripple(s,zb):0;
+          this.imageQuad(sheet.image,[(2+(u-start))*k+src,52*k,(v-u)*k,12*k],[[0,top+ra,za],[0,top+rb,zb],[0,bottom+rb,zb],[0,bottom+ra,za]]);
+        }
+      }
+    }
+    chromeSpan(s) {
+      // The line starts exactly at the runner box, then tears out to the viewport edges.
+      const a=this.anchor,unit=a.scale,origin=a.heroX+22;
+      const grow=s.scene==='rupture'?smooth(s.sceneTime/(s.reducedMotion?1.6:1.0)):1;
+      const lo=mix(-origin,Math.min(-a.left-origin,-14*unit),grow),hi=mix(a.width-origin,Math.max(this.w-a.left-origin,70*unit),grow);
+      return [lo/unit,hi/unit];
+    }
+    ripple(s,z) {
+      // Lap one holds the runner's exact line for its first frames, then the wave builds.
+      const hold=s.lap===1?smooth((s.sceneTime-.06)/.3):1;
+      return Math.sin(z*.9-s.sceneTime*6)*Math.exp(-Math.abs(z)/14)*Math.sin(clamp(s.sceneTime/1.35)*Math.PI)*(s.reducedMotion?.35:.85)*hold;
+    }
     dino(s, options={}) {
+      if(this.medium==='chrome') {this.chromeHero(s,options);return;}
       if(this.medium==='pixel-8') {this.pixelSprite(Math.floor(s.distance*2)%2?'runA':'runB',options.x||0,options.y??s.player.height,options.z||0,1.9*(options.scale||1),2.2*(options.scale||1));return;}
       if(this.medium==='ai-gouache') {
         const frame=!s.player.grounded?'jump':s.mode==='idle'?'idle':Math.floor(s.distance*2)%2?'runA':'runB';
@@ -346,10 +424,11 @@
       }
       if(['ink-comic','cel-cartoon','gouache-fallback'].includes(this.medium)){this.drawnDino(s,options);return;}
       const ext = mix(.035, 1, smooth(s.extrusion));
-      const color = options.color || (this.hero && s.recovery>0 ? [202,116,65] : null) || GRAY.map((n, i) => mix(n, s.scene==='dream'?[64,78,133][i]:CHROME[i], s.extrusion));
+      const color = options.color || (this.hero && s.recovery>0 ? [202,116,65] : null) || (this.anchor?this.theme.ink:GRAY).map((n, i) => mix(n, s.scene==='dream'?[64,78,133][i]:CHROME[i], s.extrusion));
       const y = options.y ?? s.player.height, run = s.player.grounded ? Math.sin(s.distance * 3.8) * .17 : .10;
       const lean = s.player.stumble > 0 ? -.12 : 0;
-      const scale=options.scale || (s.scene==='dream'?1+s.morph*.10:1);
+      // Lap one: the volumetric hero starts at the runner sprite's height, then grows.
+      const scale=options.scale || (s.scene==='dream'?1+s.morph*.10:this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1);
       const squash=options.lod?1:1-Math.sin(clamp(s.impact/.32)*Math.PI)*.15;
       let index=0;
       const part = (x,py,z,sx,sy,sz,c=color) => {
@@ -400,14 +479,17 @@
     }
     world(s) {
       if(!['offline','rupture','extrusion','track','breath'].includes(s.scene)) {this.showWorld(s);return;}
-      const e = smooth(s.extrusion), b = s.projectionBlend;
+      const e = smooth(s.extrusion), b = s.projectionBlend, chrome=this.medium==='chrome', a=this.anchor;
       this.layer=0;
       const width = mix(.035,5.8,e);
       const travel = s.distance % 3;
-      for (let i = -5; i < 29; i++) {
+      // Anchored lap-one views reach the viewport edges, not the old fixed span.
+      const zLo=a?Math.min(-15,Math.floor((-this.cam.cx/a.scale-2)/3)*3):-15, zHi=a?Math.max(84,(this.w-this.cam.cx)/a.scale+3):84;
+      if(chrome)this.chromeHorizon(s);
+      else for (let i = Math.round(zLo/3); i < Math.ceil(zHi/3)+1; i++) {
         const z = i * 3 - travel;
-        const ripple = s.scene === 'rupture' ? Math.sin(z * .9 - s.sceneTime * 6) * Math.exp(-Math.abs(z) / 14) * Math.sin(clamp(s.sceneTime / 1.35) * Math.PI) * (s.reducedMotion ? .35 : .85) : 0;
-        const color = [247,247,247].map((n,j) => mix(n,(i%2 ? [34,38,65] : [40,44,72])[j],e));
+        const ripple = s.scene === 'rupture' ? this.ripple(s,z) : 0;
+        const color = this.base.map((n,j) => mix(n,(i%2 ? [34,38,65] : [40,44,72])[j],e));
         this.box(0,ripple-.10,z,width,.20,3.015,color);
         if (e > .02) {
           for (const side of [-1,1]) this.box(side*width*.5,ripple+.015,z,.045,.035,3.02,[103,224,233]);
@@ -415,22 +497,26 @@
           if (i%2 === 0) this.box(0,ripple+.018,z,.06,.025,.75,[116,123,153]);
         }
       }
-      if (e < .01 && s.scene !== 'rupture') {
+      if (e < .01 && s.scene !== 'rupture' && !chrome) {
         this.box(0,-.10,28,.06,.035,100,GRAY);
       }
       this.layer=2;
       const tear = s.scene==='rupture' ? smooth(s.sceneTime/1.35) : s.scene==='extrusion' ? 1-smooth(s.sceneTime/1.4) : 0;
       if(tear>0) {
         const edge=[];
-        for(let i=-10;i<=22;i++) {
+        let lo=Math.min(-10,Math.floor(zLo/3)),hi=Math.max(22,Math.ceil(zHi/3));
+        // Lap one: the tear opens only under the line that has already escaped its box.
+        if(a){const span=this.chromeSpan(s);lo=Math.ceil(span[0]/3);hi=Math.floor(span[1]/3);this.opacity=smooth(tear/.2);}
+        for(let i=lo;i<=hi;i++) {
           const z=i*3;
           edge.push([-.08,-.24-Math.abs(Math.sin(i*2.9))*.28*tear,z]);
         }
-        for(let i=22;i>=-10;i--) {
+        for(let i=hi;i>=lo;i--) {
           const z=i*3;
           edge.push([-.08,-.24-tear*(1.6+Math.abs(Math.sin(i*1.7))*1.3)*Math.exp(-Math.abs(z)/52),z]);
         }
-        this.polygon(edge,[24,20,43]);
+        if(hi>lo)this.polygon(edge,[24,20,43]);
+        this.opacity=1;
       }
       if (e > .01) {
         // The original page physically folds into two wings off the unfolding ribbon.
@@ -438,7 +524,7 @@
         this.layer=-1;
         if (fold < .995) for (const side of [-1,1]) {
           const x = side * width / 2;
-          this.polygon([[x,-.15,-10],[x,-.15,60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),-10]],[237,239,247]);
+          this.polygon([[x,-.15,-10],[x,-.15,60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),-10]],a?this.theme.page.map(n=>mix(n,237,.04)):[237,239,247]);
         }
         this.layer=2;
         // Suspended, faceted sun: a solid object with a rotating equatorial ring.
@@ -661,6 +747,9 @@
         for(const radius of [1,.77])this.polygon(Array.from({length:20},(_,i)=>{const a=i*Math.PI/10;return [Math.cos(a)*(.7+s.player.height*.08)*radius,.025,Math.sin(a)*.9*radius-.1];}),radius===1?[211,161,126]:[183,142,119]);
       } else if(s.extrusion>.05)this.box(0,.025,-.1,.95+s.player.height*.16,.025,1.6+s.player.height*.12,[42,48,69]);
       this.layer=4;
+      // Continuity probe: where the one hero's feet project this frame, and at what scale.
+      const hv=this.view([0,s.player.height,0]);
+      if(hv[2]>.35){const hp=this.project(hv);this.stats.hero={x:hp[0],y:hp[1],pxPerUnit:this.cam.focal/mix(24,Math.max(.35,hv[2]),this.cam.b),medium:this.medium};}
       this.hero=true;
       if(this.medium==='pixel-16')this.windowBox(0,s.player.height,0,1.6,2.05,0,true);
       else this.dino(s);
@@ -742,7 +831,9 @@
       const e = smooth(s.extrusion);
       const palette=this.palette(s.scene), prev=this.palette(s.previousScene);
       const tone=palette.map((n,i)=>mix(prev[i],n,smooth(s.sceneTime/1.1)));
-      const bg = [247,247,247].map((n,i)=>Math.round(mix(n,tone[i],e)));
+      // Lap one's flat views start from the actual page colour (light or dark).
+      this.base=s.lap===1&&['offline','rupture','extrusion'].includes(s.scene)?this.theme.page:[247,247,247];
+      const bg = this.base.map((n,i)=>Math.round(mix(n,tone[i],e)));
       this.background=bg;
       c.fillStyle = `rgb(${bg})`; c.fillRect(0,0,w,h);
       if (e > .01 && ['extrusion','track'].includes(s.scene)) {
@@ -797,7 +888,7 @@
     draw(s) {
       const start=performance.now(),w=this.w,h=this.h,c=this.ctx;
       // Warm on readiness/resize, not at the first painted handoff.
-      if(this.art.status==='ready')this.prepareSky();
+      if(this.art.status==='ready'&&!this.skyImage&&!this.native)this.scheduleSky();
       let desired=this.art.medium(s);
       // Readiness is reported immediately; an airborne fallback hero is not replaced mid-jump.
       if(desired==='ai-gouache' && this.currentMedium==='gouache-fallback' && !s.player.grounded)desired=this.currentMedium;
@@ -817,8 +908,10 @@
       this.visual.lift=mix(this.visual.lift,s.scene==='desktop'?s.morph*.24:0,ease);
       if(s.mode!=='running')this.handoff=null;
       let blend=this.handoff?smooth((s.simTime-this.handoff.start)/this.handoff.duration):1;
-      if(this.handoff?.medium==='pixel-8'&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
+      if(['pixel-8','chrome'].includes(this.handoff?.medium)&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
       if(blend>=1)this.handoff=null;
+      // The integer runner ratio is only held while the Chromium sprites are on screen.
+      if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
       // Both visible gameplay passes use this single current camera and transform.
       this.camera(s);
       const incoming=this.renderWorld(s,s,desired,c);
@@ -850,6 +943,11 @@
       const e=smooth(s.extrusion);
       this.hudDesktop=mix(this.hudDesktop||0,s.scene==='desktop'?1:0,ease);
       c.imageSmoothingEnabled=true;
+      // Nothing of the game's own HUD exists before lap one's transformation is underway.
+      const hud=s.revealAt==null?0:smooth((s.simTime-s.revealAt)/.6);
+      this.stats.hudAlpha=hud;
+      c.save();c.globalAlpha=hud;
+      if(hud>0){
       c.fillStyle='rgba(255,248,232,.55)';c.beginPath();
       c.roundRect(w-158,18,142,s.mode==='idle'?24:66+36*this.hudDesktop,7);c.fill();
       c.textAlign='right'; c.font='11px ui-monospace, monospace';
@@ -884,6 +982,8 @@
         c.fillStyle='#23324b';c.textAlign='center';c.font='12px ui-monospace, monospace';
         c.fillText('One more.',w*.5,h*.22);
       }
+      }
+      c.restore();
       this.stats.polygons=commands;
       this.stats.maxPolygons=Math.max(this.stats.maxPolygons,commands);
       this.stats.renderMs=performance.now()-start;

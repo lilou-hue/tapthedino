@@ -6,6 +6,23 @@
     constructor(muted) {
       this.muted = muted; this.context = null; this.voices = new Set();
       this.scene = ''; this.step = 0; this.origin = 0; this.failed = false;
+      this.samples = {}; this.samplesLoading = false;
+    }
+    loadSamples() {
+      // Chromium's own offline-runner sounds, used only by the lap-one opening.
+      if (this.samplesLoading || !this.context) return;
+      this.samplesLoading = true;
+      for (const name of ['press','hit','reached']) {
+        fetch('assets/chrome-'+name+'.mp3?v=1').then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status))))
+          .then(data => this.context.decodeAudioData(data)).then(buffer => { this.samples[name] = buffer; }).catch(() => {});
+      }
+    }
+    chrome(name) {
+      const a=this.context, buffer=this.samples[name];
+      if (!a || this.muted || a.state!=='running') return false;
+      if (!buffer) return false;
+      const source=a.createBufferSource(); source.buffer=buffer; source.connect(a.destination); source.start(0);
+      return true;
     }
     async unlock() {
       if (this.muted || this.failed) return;
@@ -22,6 +39,7 @@
           const data = this.noise.getChannelData(0); let seed = 127;
           for(let i=0;i<data.length;i++) { seed = (Math.imul(seed,1664525)+1013904223)>>>0; data[i]=(seed/4294967296)*2-1; }
         }
+        this.loadSamples();
         if (this.context.state === 'suspended') await this.context.resume();
         this.scene = '';
       } catch { this.failed = true; }

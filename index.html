@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#202124" media="(prefers-color-scheme: dark)">
   <link rel="preload" as="image" href="assets/chrome-idle.png" imagesrcset="assets/chrome-idle.png 1x, assets/chrome-idle@2x.png 2x">
+  <link rel="preload" as="image" href="assets/chrome-sprites.png?v=1" imagesrcset="assets/chrome-sprites.png?v=1 1x, assets/chrome-sprites@2x.png?v=1 2x">
   <meta property="og:site_name" content="Tap the Dino">
   <meta property="og:title" content="Tap the Dino">
   <meta property="og:description" content="Keep jumping. The world has other plans.">
@@ -15,8 +16,7 @@
   <link rel="canonical" href="https://tapthedino.com/">
   <meta property="og:url" content="https://tapthedino.com/">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./arcade.css">
-  <link rel="stylesheet" href="styles.css?v=42">
+  <link rel="stylesheet" href="styles.css?v=43">
 </head>
 <body>
   <section id="chrome-opening" aria-label="Tap the Dino">
@@ -35,7 +35,10 @@
           <div class="chrome-code">ERR_INTERNET_DISCONNECTED</div>
         </div>
         <div class="chrome-footer" aria-hidden="true"></div>
-        <img class="chrome-dino" src="assets/chrome-idle.png" srcset="assets/chrome-idle.png 1x, assets/chrome-idle@2x.png 2x" width="44" height="150" alt="">
+        <div class="chrome-runner" id="runner" aria-hidden="true">
+          <img class="chrome-dino" src="assets/chrome-idle.png" srcset="assets/chrome-idle.png 1x, assets/chrome-idle@2x.png 2x" width="44" height="150" alt="">
+          <canvas id="runner-canvas" hidden></canvas>
+        </div>
       </div>
     </div>
   </section>
@@ -46,19 +49,28 @@
     <p>The dinosaur is still here.</p>
     <p class="code">ERR_INTERNET_DISCONNECTED</p>
   </section>
-  <div id="hint">Space or tap to jump<br>3 hearts · +1 heart per completed lap</div>
   <div id="chapter" aria-live="polite"></div>
   <div id="health" role="img" aria-live="polite" aria-label="3 of 3 hearts"><span class="hearts" aria-hidden="true">♥♥♥</span><span class="health-cue" aria-hidden="true"></span></div>
   <nav id="bar" aria-label="Game controls">
-    <a id="home" href="https://slayplay.io/arcade/" title="Back to SlayPlay" aria-label="Back to SlayPlay">←</a>
     <button id="again" type="button" title="Start again" aria-label="Start again">↻</button>
     <button id="bank" type="button" disabled title="Finish and keep this score">Bank score</button>
-    <button id="mute" type="button" title="Sound" aria-label="Sound">♪</button>
+    <button id="mute" type="button" title="Sound (M)" aria-label="Sound">♪</button>
   </nav>
-  <script src="./arcade.js"></script>
-  <script src="art.js?v=40"></script>
-  <script src="renderer.js?v=40"></script>
-  <script src="audio.js?v=40"></script>
-  <script src="game.js?v=41"></script>
+  <div id="end" role="dialog" aria-labelledby="end-title" hidden>
+    <div class="end-info">
+      <span id="end-title" class="end-title">Run over</span>
+      <span class="end-scores">Score <strong id="end-score">0</strong> · Best <strong id="end-best">0</strong> <span id="end-new" class="end-new" hidden>★ New best</span></span>
+    </div>
+    <div class="end-actions">
+      <button id="end-again" class="end-again" type="button">Play again ▶</button>
+      <button id="end-share" type="button" title="Share https://tapthedino.com/">Share</button>
+      <button id="end-close" class="end-close" type="button" aria-label="Dismiss" title="Dismiss (Esc)">×</button>
+    </div>
+  </div>
+  <script src="art.js?v=41"></script>
+  <script src="renderer.js?v=41"></script>
+  <script src="audio.js?v=41"></script>
+  <script src="opening.js?v=1"></script>
+  <script src="game.js?v=42"></script>
 </body>
 </html>

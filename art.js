@@ -76,6 +76,8 @@
     }
     snapshot(out={}) {out.status=this.status;out.imageCount=this.loaded;out.fallbackReason=this.fallbackReason;return out;}
     medium(s) {
+      // Lap one starts as the page's own runner; its sprites stay until the extrusion.
+      if(s.lap===1&&(s.scene==='offline'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)))return 'chrome';
       if(s.scene==='offline'||s.scene==='breath'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)||(s.scene==='collapse'&&s.projectionBlend<.4))return 'pixel-8';
       if(s.scene==='desktop'||s.scene==='crash')return 'pixel-16';
       if(s.scene==='corkscrew')return 'ink-comic';
