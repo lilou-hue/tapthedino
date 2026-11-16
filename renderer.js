@@ -119,6 +119,13 @@
     }
     camera(s) {
       this.s=s;this.hero=false;
+      if(s.scene==='extreme') {
+        // Orthographic pullback holds both the actual 24-unit top and base in view.
+        // Horizontal approach uses the same cactusZ as the fixed contact test.
+        const scale=Math.min((this.h-215)/34,this.w*.65/14)*(s.reducedMotion?1:1+.12*(1-smooth(s.sceneTime/1.5)));
+        this.cam={b:0,focal:24*scale,cx:this.w*.27,cy:this.h-75};
+        this.extremeScale=scale;return;
+      }
       const b=s.projectionBlend, blend=smooth(s.sceneTime/1.2);
       const from=this.pose(s.previousScene), to=this.pose(s.scene);
       const pose=to.map((v,i)=>mix(from[i],v,blend));
@@ -148,7 +155,7 @@
       x+=Math.sin(z*.085)*this.visual.bend*smooth(Math.max(0,z)/12);
       y+=this.visual.lift;
       if(s.scene==='crash') {y-=s.sceneTime*s.sceneTime*7;x+=Math.sin(z)*s.sceneTime;}
-      if(s.scene==='collapse' && !this.gameplay) {
+      if(s.scene==='collapse' && !this.gameplay && this.medium!=='chrome') {
         const k=this.collapseScale,co=this.foldCos,si=this.foldSin;
         const xx=x*co-y*si;
         y=(x*si+y*co)*k;x=xx*k;z*=k;
@@ -157,6 +164,7 @@
       return [x*co-y*si,x*si+y*co,z];
     }
     view(p) {
+      if(this.s.scene==='extreme')return [p[2],p[1],50+p[0]];
       const d=sub(this.transform(p),this.cam.eye);
       return [dot(d,this.cam.right),dot(d,this.cam.up),dot(d,this.cam.forward)];
     }
@@ -227,7 +235,8 @@
     }
     pixelSprite(name,x,y,z,width,height) {
       const image=this.art.pixel[name];
-      this.sprite({image,rect:[0,0,image.width,image.height]},x,y,z,width,height);
+      // The two pixel feet end at row 30, not at the transparent row-32 canvas edge.
+      this.sprite({image,rect:[0,0,image.width,image.height],anchor:[.5,['runA','runB'].includes(name)?30/32:1]},x,y,z,width,height);
     }
     texture(c,f) {
       const [x,y,w,h]=f.rect,p=f.points,uv=[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
@@ -291,15 +300,36 @@
       this.cost+=facets.length+1;
       this.faces.push({points:hull,facets:facets.sort((a,b)=>b.depth-a.depth),color:facets[0].color,depth:centerDepth,layer:this.layer,order:this.faces.length,organic:true,outline,opacity:this.opacity??1,material:color.join(',')});
     }
+    landingScale(s) {
+      const t=1-clamp(s.impact/.32);
+      // Feet/atlas anchors stay fixed: a quick compression, then a smaller recovery.
+      return 1-Math.sin(t*Math.PI*2)*(1-t)*.24*(s.reducedMotion?.35:1);
+    }
+    clearWave(s,z) {
+      let pulse=0;
+      for(const effect of s.effects) {
+        if(effect.puff)continue;
+        const age=effect.age-Math.max(0,z)/70;
+        if(age>0 && age<.55)pulse=Math.max(pulse,Math.sin(age/.55*Math.PI)*(effect.big?1:.78));
+      }
+      return pulse*(s.reducedMotion?.25:1);
+    }
+    build(s) {
+      const duration=({track:14,corkscrew:11,dream:12,desktop:11,stampede:16})[s.scene];
+      if(!duration || !s.success)return 0;
+      const progress=Math.max(s.sceneTime/duration,s.success/Math.max(1,s.target));
+      return smooth((progress-.55)/.45)*(s.reducedMotion?.25:1);
+    }
     drawnDino(s,o={}) {
       if(this.cost>=(this.gameplay?2600:this.sceneryLimit))return;
       const ink=this.medium==='ink-comic',k=o.scale||1,x=o.x||0,z=o.z||0,y=o.y??s.player.height;
-      const squash=o.lod?1:1-Math.sin(clamp(s.impact/.32)*Math.PI)*.18;
+      const recoil=o.boost||0;
+      const squash=o.lod?1:this.landingScale(s)*(1+recoil*.23);
       const color=this.hero&&s.recovery>0?[231,144,69]:(o.color||(ink?[245,231,200]:[65,200,142]));
       const accent=ink?[210,57,55]:[255,149,61],dark=ink?[28,25,31]:[29,47,72];
-      const run=s.player.grounded?Math.sin(s.distance*3.8)*.16:.14;
+      const run=recoil?recoil*.65:(s.player.grounded?Math.sin(s.distance*3.8)*.16:.14);
       let part=0;
-      const ball=(px,py,pz,sx,sy,sz,c=color)=>this.organic(x+px*k,y+py*k*squash,z+pz*k,sx*k/squash,sy*k*squash,sz*k,c,!!o.lod,![3,5].includes(part++));
+      const ball=(px,py,pz,sx,sy,sz,c=color)=>this.organic(x+px*k,y+py*k*squash,z+(pz-recoil*py*.12)*k,sx*k/squash,sy*k*squash,sz*k/squash,c,!!o.lod,![3,5].includes(part++));
       if(o.lod) {
         // Near pack members retain the hero's neck and articulated feet. At distance,
         // merge hidden joints, not head/body proportions, leaving room for the city.
@@ -325,18 +355,18 @@
           ball(side*.46,1.13,.52,.24,.22,.56);
           ball(side*(ink?.5:.34),2.06,ink?.77:.06,ink?.14:.38,.38,.23,[255,250,222]);
           ball(side*(ink?.57:.34),2.07,ink?.85:-.07,ink?.07:.17,.21,.09,dark);
-          this.box(x+side*(ink?.55:.34)*k,y+2.28*k,z+(ink?.77:.04)*k,(ink?.16:.42)*k,.07*k,.20*k,dark);
+          this.box(x+side*(ink?.55:.34)*k,y+2.28*k*squash,z+(ink?.77:.04)*k,(ink?.16:.42)*k,.07*k,.20*k,dark);
         }
       }
       for(let i=0;i<(o.lod?2:3);i++) {
         const zz=-.27-i*.36;
-        this.polygon([[x-.12*k,y+(1.48-i*.14)*k,z+zz*k],[x,y+(1.88-i*.16)*k,z+(zz-.12)*k],[x+.12*k,y+(1.48-i*.14)*k,z+(zz-.3)*k]],accent,1,dark);
+        this.polygon([[x-.12*k,y+(1.48-i*.14)*k*squash,z+zz*k],[x,y+(1.88-i*.16)*k*squash,z+(zz-.12)*k],[x+.12*k,y+(1.48-i*.14)*k*squash,z+(zz-.3)*k]],accent,1,dark);
       }
     }
     drawnCactus(z,scale=1,x=0,base=0) {
       const ink=this.medium==='ink-comic',color=ink?[220,59,54]:[120,85,209];
       const ball=(px,py,sx,sy)=>this.organic(x+px*scale,base+py*scale,z,sx*scale,sy*scale,.4*scale,color);
-      ball(0,.68,.56,1.48);ball(-.35,.57,.65,.26);ball(-.58,.88,.31,.82);ball(.35,.43,.6,.26);ball(.58,.7,.32,.72);
+      ball(0,.74,.56,1.48);ball(-.35,.57,.65,.26);ball(-.58,.88,.31,.82);ball(.35,.43,.6,.26);ball(.58,.7,.32,.72);
       for(const side of [-1,1])this.box(x+side*.11*scale,base+.72*scale,z-.22*scale,.035*scale,.72*scale,.035,ink?[250,232,201]:[227,194,255]);
     }
     paintedWorld(s) {
@@ -364,7 +394,9 @@
         const worldIndex=i+Math.floor(s.sceneDistance/8);
         const z=5+i*8-s.sceneDistance%8,x=side*(7.2+(worldIndex%3)*2.1),size=(3.3+(worldIndex%4)*.8)*smooth((z-1)/8);
         const names=['mushroom','cactus','boulder','arch'];
-        this.sprite(this.art.frames[names[(worldIndex+s.variant+(side>0?1:0))%4]],x,0,z,size,size);
+        const breath=this.clearWave(s,z)*.17+this.build(s)*.018*Math.sin(s.beat*Math.PI-z*.09);
+        // Breathe the actual painted cutouts, not a synthetic replacement or glow pass.
+        this.sprite(this.art.frames[names[(worldIndex+s.variant+(side>0?1:0))%4]],x,0,z,size*(1-breath*.35),size*(1+breath));
         if(worldIndex%4===0)this.sprite(this.art.frames.mushroom,side*(15+worldIndex%9),0,z+9,size*2.2,size*2.2);
       }
     }
@@ -406,21 +438,22 @@
     chromeSpan(s) {
       // The line starts exactly at the runner box, then tears out to the viewport edges.
       const a=this.anchor,unit=a.scale,origin=a.heroX+22;
-      const grow=s.scene==='rupture'?smooth(s.sceneTime/(s.reducedMotion?1.6:1.0)):1;
+      const grow=s.scene==='collapse'?1-smooth(s.sceneTime/2.25):s.scene==='rupture'?smooth(s.sceneTime/(s.reducedMotion?1.6:1.0)):1;
       const lo=mix(-origin,Math.min(-a.left-origin,-14*unit),grow),hi=mix(a.width-origin,Math.max(this.w-a.left-origin,70*unit),grow);
       return [lo/unit,hi/unit];
     }
     ripple(s,z) {
       // Lap one holds the runner's exact line for its first frames, then the wave builds.
-      const hold=s.lap===1?smooth((s.sceneTime-.06)/.3):1;
+      const hold=smooth((s.sceneTime-.06)/.3);
       return Math.sin(z*.9-s.sceneTime*6)*Math.exp(-Math.abs(z)/14)*Math.sin(clamp(s.sceneTime/1.35)*Math.PI)*(s.reducedMotion?.35:.85)*hold;
     }
     dino(s, options={}) {
       if(this.medium==='chrome') {this.chromeHero(s,options);return;}
-      if(this.medium==='pixel-8') {this.pixelSprite(Math.floor(s.distance*2)%2?'runA':'runB',options.x||0,options.y??s.player.height,options.z||0,1.9*(options.scale||1),2.2*(options.scale||1));return;}
+      const landing=options.lod?1:this.landingScale(s);
+      if(this.medium==='pixel-8') {this.pixelSprite(Math.floor(s.distance*2)%2?'runA':'runB',options.x||0,options.y??s.player.height,options.z||0,1.9*(options.scale||1)/landing,2.2*(options.scale||1)*landing);return;}
       if(this.medium==='ai-gouache') {
         const frame=!s.player.grounded?'jump':s.mode==='idle'?'idle':Math.floor(s.distance*2)%2?'runA':'runB';
-        this.sprite(this.art.frames[frame],options.x||0,options.y??s.player.height,options.z||0,2.6*(options.scale||1),3.1*(options.scale||1));return;
+        this.sprite(this.art.frames[frame],options.x||0,options.y??s.player.height,options.z||0,2.6*(options.scale||1)/landing,3.1*(options.scale||1)*landing);return;
       }
       if(['ink-comic','cel-cartoon','gouache-fallback'].includes(this.medium)){this.drawnDino(s,options);return;}
       const ext = mix(.035, 1, smooth(s.extrusion));
@@ -429,7 +462,7 @@
       const lean = s.player.stumble > 0 ? -.12 : 0;
       // Lap one: the volumetric hero starts at the runner sprite's height, then grows.
       const scale=options.scale || (s.scene==='dream'?1+s.morph*.10:this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1);
-      const squash=options.lod?1:1-Math.sin(clamp(s.impact/.32)*Math.PI)*.15;
+      const squash=options.lod?1:this.landingScale(s);
       let index=0;
       const part = (x,py,z,sx,sy,sz,c=color) => {
         const split=options.fragment||0, n=index++;
@@ -445,7 +478,7 @@
       part(0,.96,-.04,.68,.86,.96); // body
       part(0,1.40,.31,.53,.65,.48); // upright neck
       part(0,1.85,.66,.79,.65,.96); // oversized square head
-      part(0,1.56,.80,.70,.16,.73); // jaw, with a real mouth gap
+      part(0,1.42,.80,.70,.16,.73); // jaw joins the neck, leaving a small mouth gap below the head
       part(0,.88,-.77,.46,.35,.75); part(0,1.03,-1.23,.27,.23,.42); // stepped tail
       part(-.39,1.10,.52,.13,.15,.40); part(.39,1.10,.52,.13,.15,.40); // little arms
       part(-.23,.36,-.18+run,.23,.65,.27); part(.23,.36,-.18-run,.23,.65,.27);
@@ -472,13 +505,13 @@
       };
       // The flat branches grow lateral volume as well as depth: still readable from behind.
       box(0,.65,0,ext*.62,1.3,.25);
-      box(-.30*spread,.62,-.30,ext,.20,.57);
-      box(-.57*spread,.89,-.51,ext*.38,.65,.20);
-      box(.30*spread,.46,.32,ext,.19,.60);
-      box(.57*spread,.68,.56,ext*.38,.52,.19);
+      box(-.30*spread,.62,-.25,ext,.20,.65);
+      box(-.51*spread,.89,-.51,ext*.38,.65,.20);
+      box(.30*spread,.46,.27,ext,.19,.69);
+      box(.51*spread,.68,.56,ext*.38,.52,.19);
     }
     world(s) {
-      if(!['offline','rupture','extrusion','track','breath'].includes(s.scene)) {this.showWorld(s);return;}
+      if(!['offline','rupture','extrusion','track','breath','collapse'].includes(s.scene)) {this.showWorld(s);return;}
       const e = smooth(s.extrusion), b = s.projectionBlend, chrome=this.medium==='chrome', a=this.anchor;
       this.layer=0;
       const width = mix(.035,5.8,e);
@@ -492,7 +525,8 @@
         const color = this.base.map((n,j) => mix(n,(i%2 ? [34,38,65] : [40,44,72])[j],e));
         this.box(0,ripple-.10,z,width,.20,3.015,color);
         if (e > .02) {
-          for (const side of [-1,1]) this.box(side*width*.5,ripple+.015,z,.045,.035,3.02,[103,224,233]);
+          const light=this.clearWave(s,z)+this.build(s)*.18*(.5+.5*Math.sin(z*.55-s.beat*Math.PI*2));
+          for (const side of [-1,1]) this.box(side*width*.5,ripple+.015,z,.045+light*.12,.035,3.02,[103+light*90,224,233-light*65]);
           // One sparse centre dash, not a wallpaper grid.
           if (i%2 === 0) this.box(0,ripple+.018,z,.06,.025,.75,[116,123,153]);
         }
@@ -538,19 +572,20 @@
         // Broad folded fins open with the first drop, leaving the central corridor clear.
         for (let i=0;i<7;i++) for (const side of [-1,1]) {
           const zf = 8+i*8 - (s.distance*.35)%8, x = side*(7+i*.35);
-          const h = (5+(i%3)*4)*e;
-          this.polygon([[x,0,zf-3],[x+side*7,h,zf+2],[x+side*3,0,zf+5]],[66,51,116],.8+i*.05);
+          const wave=this.clearWave(s,zf);
+          const h = (5+(i%3)*4)*e*(1+wave*.26);
+          this.polygon([[x,0,zf-3],[x+side*7,h,zf+2],[x+side*3,0,zf+5]],[66+wave*45,51+wave*65,116+wave*55],.8+i*.05);
           this.polygon([[x,0,zf-3],[x+side*7,h,zf+2],[x+side*9,0,zf-1]],[37,33,77]);
         }
         for (const m of s.monuments) {
           // Monumental scenery recedes before it can engulf the near camera/corridor.
-          const grow = smooth(m.age / 1.0)*smooth((m.z-2)/10), h = m.scale * grow;
+          const wave=this.clearWave(s,m.z),grow = smooth(m.age / 1.0)*smooth((m.z-2)/10), h = m.scale * grow*(1+wave*.18);
           if(h<.05)continue;
           const x = m.side*(5.5+h*.4);
           this.cactus(m.z,1,h,x,-.1,m.side < 0 ? [145,105,225] : [72,169,186],m.side*.12*grow);
           // Later laps unfold paired arches, with the same clear central corridor.
           const unfold=s.variant?smooth(m.age/1.4):0;
-          this.box(x*.5,h*.95,m.z,Math.abs(x),.16,.45,[174,233,241],m.side*unfold*.25);
+          this.box(x*.5,h*.95,m.z,Math.abs(x),.16+wave*.25,.45,[174+wave*55,233,241-wave*60],m.side*unfold*.25);
           if(s.variant) {
             this.cactus(m.z+2,1,h*.72,-x,-.1,[94,189,183],-m.side*.25*unfold);
             this.box(0,h*1.15,m.z,Math.abs(x)*1.6,.32,.65,[212,191,244],Math.sin(unfold*Math.PI)*.15);
@@ -569,7 +604,7 @@
       this.rewards(s);
     }
     palette(scene) {
-      return ({corkscrew:[245,231,203],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],finale:[105,205,237],breath:[247,247,247]})[scene] || [9,11,29];
+      return ({corkscrew:[245,231,203],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],extreme:[235,224,197],finale:[105,205,237],breath:[247,247,247]})[scene] || [9,11,29];
     }
     runway(s,style) {
       const colors={corkscrew:[[245,223,164],[231,206,144],[37,44,64]],dream:[[210,192,231],[226,211,240],[115,88,157]],
@@ -583,7 +618,8 @@
       for(let i=-5;i<26;i++) {
         const z=i*3-s.distance%3;
         this.polygon([[-wide/2,0,z-1.51],[wide/2,0,z-1.51],[wide/2,0,z+1.51],[-wide/2,0,z+1.51]],c[Math.abs(i)%2]);
-        for(const side of [-1,1])this.box(side*wide*.5,.016,z,.055,.035,3.01,c[2]);
+        const light=this.clearWave(s,z),drive=this.build(s)*(.5+.5*Math.sin(z*.6-s.beat*Math.PI*2));
+        for(const side of [-1,1])this.box(side*wide*.5,.016,z,.055+light*.14+drive*.025,.035,3.01,c[2]);
         if(style==='desktop') {
           this.box(0,.025,z+1.12,wide-.15,.03,.35,[58,88,151]);
           this.box(-1.5,.028,z-.15,1.8,.03,.11,[154,168,187]);
@@ -594,7 +630,8 @@
     }
     windowBox(x,y,z,w,h,seed=0,player=false) {
       if(this.medium==='pixel-16') {
-        this.pixelSprite(player?(Math.floor(this.s.distance*2)%2?'windowA':'windowB'):'hazard',x,y,z,w,h);
+        const landing=player?this.landingScale(this.s):1;
+        this.pixelSprite(player?(Math.floor(this.s.distance*2)%2?'windowA':'windowB'):'hazard',x,y,z,w/landing,h*landing);
         return;
       }
       this.box(x,y+h*.5,z,w,h,.20,[229,235,241]);
@@ -620,12 +657,14 @@
       for(let i=0;i<8;i++) {
         const z=6+i*8-s.sceneDistance%8;
         for(let j=0;j<8;j++) {
-          const a=j*Math.PI/4+i*(s.variant===1?-.32:s.variant===2?.25:.065),r=4.8+Math.sin(clamp(s.burst/1.5)*Math.PI)*1.8;
+          const wave=this.clearWave(s,z);
+          const a=j*Math.PI/4+i*(s.variant===1?-.32:s.variant===2?.25:.065),r=4.8+wave*1.35;
+          // One outward snap travels through the jaws after each clear, not a camera kick.
           this.layer=Math.sin(a)<-.1?-1:2;
-          this.box(Math.cos(a)*r,Math.sin(a)*r,z,3.25,.28,.50,[40,44,62],a+Math.PI/2);
+          this.box(Math.cos(a)*r,Math.sin(a)*r,z,3.25,.28+wave*.23,.50,wave>.3?[214,54,52]:[40,44,62],a+Math.PI/2);
           if(j%2===0 && i<4) {
             const t=a+.12;
-            this.polygon([[Math.cos(a-.12)*r,Math.sin(a-.12)*r,z-.25],[Math.cos(a+.12)*r,Math.sin(a+.12)*r,z-.25],[Math.cos(t)*3.65,Math.sin(t)*3.65,z+.4]],[255,239,193]);
+            this.polygon([[Math.cos(a-.12)*r,Math.sin(a-.12)*r,z-.25],[Math.cos(a+.12)*r,Math.sin(a+.12)*r,z-.25],[Math.cos(t)*(3.65+wave*.85),Math.sin(t)*(3.65+wave*.85),z+.4]],[255,239,193]);
           }
         }
       }
@@ -640,17 +679,18 @@
       if(this.medium==='ai-gouache'){this.paintedWorld(s);return;}
       // Explicit procedural fallback, never reported as generated art.
       this.layer=2;
-      for(let i=0;i<10;i++)for(const side of [-1,1])this.drawnCactus(8+i*7-s.sceneDistance%7,2+i%3,side*(6+i%3*2));
+      for(let i=0;i<10;i++)for(const side of [-1,1]){const z=8+i*7-s.sceneDistance%7;this.drawnCactus(z,(2+i%3)*(1+this.clearWave(s,z)*.17),side*(6+i%3*2));}
     }
     desktop(s) {
       for(let i=0;i<4;i++) {
-        this.windowBox(-7-i*.65,.2+i*.45,18+i*5,4.4,3.1,i);
-        this.windowBox(8+i*.55,.3+i*.9,28+i*4,4.4,3.1,i+1);
+        const left=this.clearWave(s,18+i*5),right=this.clearWave(s,28+i*4);
+        this.windowBox(-7-i*.65-left*.45,.2+i*.45+left*.8,18+i*5,4.4,3.1,i);
+        this.windowBox(8+i*.55+right*.45,.3+i*.9+right*.8,28+i*4,4.4,3.1,i+1);
       }
       for(const w of s.windows) {
         if(w.age<0)continue;
-        const pop=smooth(w.age/.35);
-        const fan=s.variant?Math.sin(w.seed*.65)*3:0;
+        const wave=this.clearWave(s,w.z),pop=smooth(w.age/.35)*(1+wave*.10);
+        const fan=(s.variant?Math.sin(w.seed*.65)*3:0)+Math.sign(w.x)*wave*.45;
         this.windowBox(w.x+fan,w.y+(1-pop)*2+(s.variant?(w.seed%3)*1.3:0),w.z,3.3*pop,2.5*pop,w.seed);
         if(s.variant===2 && w.seed%3===0)this.windowBox(w.x+fan,w.y+3,w.z+1,2.1*pop,1.6*pop,w.seed+1);
         this.layer=-1;
@@ -667,16 +707,17 @@
 
         for(const side of [-1,1]) {
           const x=side*(8+(tower.id%3)*1.5), z=tower.z;
+          const wave=this.clearWave(s,z),height=tower.height*(1-wave*.14);
           if(age>2.2) {
             box(x,.22,z,3.8,.44,4.4,[123,81,196]);
             box(x+side*.6,.9,z+.5,2.3,1.6,2.4,[255,208,88],side*.8);
           } else if(age<0) {
-            box(x,tower.height*.5,z,2.3,tower.height,2.7,[255,205,79]);
-            box(x,tower.height+.25,z,3,.5,3.3,[229,72,126]);
+            box(x,height*.5,z,2.3+wave*.45,height,2.7,[255,205,79]);
+            box(x,height+.25,z,3+wave*.45,.5,3.3,[229,72,126]);
             // Oversized candy roof and face-like windows make this a squashable cartoon city.
-            this.polygon([[x*k-1.5*k,tower.height*k,z*k+27*gather],[x*k,(tower.height+1.8)*k,z*k+27*gather],[x*k+1.5*k,tower.height*k,z*k+27*gather]],[229,72,126]);
-            for(const eye of [-1,1])box(x+eye*.5,tower.height*.7,z-1.4,.35,.65,.06,[255,250,227]);
-            for(let n=1;n<4;n++)box(x-.02,tower.height*n/4,z-1.37,1.4,.18,.05,[92,76,180]);
+            this.polygon([[x*k-1.5*k,height*k,z*k+27*gather],[x*k,(height+1.8)*k,z*k+27*gather],[x*k+1.5*k,height*k,z*k+27*gather]],[229,72,126]);
+            for(const eye of [-1,1])box(x+eye*.5,height*.7,z-1.4,.35,.65,.06,[255,250,227]);
+            for(let n=1;n<4;n++)box(x-.02,height*n/4,z-1.37,1.4,.18,.05,[92,76,180]);
           } else {
             for(let n=0;n<3;n++) {
               const flight=Math.max(0,Math.sin(clamp(age/1.7)*Math.PI));
@@ -693,7 +734,7 @@
         const row=Math.floor((i-1)/6),col=(i-1)%6;
         const delay=(row+1)*.06, jumpAge=s.simTime-s.lastJumpTime-delay;
         const waveAge=s.simTime-s.waveTime-(row+1)*.12;
-        const wave=waveAge>=0?Math.max(0,5.8*waveAge-7*waveAge*waveAge):0;
+        const wave=waveAge>=0?Math.max(0,7.2*waveAge-8.5*waveAge*waveAge)*(s.reducedMotion?.35:1):0;
         const jump=Math.max(wave,jumpAge>=0?Math.max(0,7.7*jumpAge-9*jumpAge*jumpAge):0);
         const scale=(.88+(i%3)*.045)*(1-gather*.94);
         const fan=s.variant===1?1+row*.22:1;
@@ -762,34 +803,82 @@
         }
       }
       this.hero=false;this.layer=4;
-      for(const o of s.obstacles) {
-        if(o.resolved && o.clear)continue;
-        if(this.medium==='pixel-16')this.windowBox(0,o.resolved?-.5:0,o.z,1.8,1.25,o.id);
-        else this.cactus(o.z,1,1,0,o.resolved?-.5:0,s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
+      for(const o of [...s.obstacles,...(s.clearedTail||[])]) {
+        if(o.z<=-8)continue;
+        // Clearance is a score flag, never a shrink/eat animation. Keep full-height geometry.
+        this.layer=3;
+        if(s.extrusion>.05)this.polygon(Array.from({length:12},(_,i)=>{const a=i*Math.PI/6;return [Math.cos(a)*.48,.025,o.z+Math.sin(a)*.30];}),this.medium==='ai-gouache'?[183,142,119]:[42,48,69]);
+        this.layer=4;
+        if(this.medium==='pixel-16')this.windowBox(0,0,o.z,1.8,1.25,o.id);
+        else this.cactus(o.z,1,1,0,0,s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
       }
+      // Use the reserved gameplay budget after the hero/hazards, so the full pack
+      // cannot crowd out its earned contact ring. No extra fullscreen pass.
+      this.rewards(s,true);
     }
-    rewards(s) {
+    extremeWorld(s) {
+      const e=s.extreme,z=e.cactusZ*.45,k=this.extremeScale;
+      this.gameplay=true;this.layer=0;
+      this.box(0,-.2,8,4,.4,180,[217,208,174]);
+      this.layer=2;
+      const green=[67,151,105],dark=[35,106,78];
+      const surprise=smooth((e.visualHeight-15)/9),wobble=Math.sin(e.pose*18)*surprise*(s.reducedMotion?.06:.45);
+      // One continuous cactus, not a stack of ordinary obstacles.
+      this.box(0,e.targetHeight/2,z,1.2,e.targetHeight,1.4,green);
+      this.box(0,15,z-1.7,1,1,3,dark);this.organic(0,17+wobble,z-2.8-wobble,1,5,1,dark);
+      this.box(0,9,z+1.6,1,1,3,green);this.organic(0,11-wobble,z+2.7+wobble,1,5,1,green);
+      this.organic(0,e.targetHeight-.5,z,1.2,1,1.4,green);
+      for(let i=1;i<12;i++)this.box(-.64,i*2,z,.08,.18,1.65,[226,239,178]);
+      // The face stays below the target line; its jaw drops as the runner clears it.
+      for(const side of [-1,1]) {
+        this.organic(-.76,22.3,z+side*.38,.28,.55+surprise*.45,.55,[255,250,225]);
+        this.organic(-.94,22.3+surprise*.1,z+side*.38-.08,.12,.23,.21,[29,47,72]);
+      }
+      this.organic(-.78,21.1-surprise*.3,z,.22,.18+surprise*1.1,.62,[29,47,72]);
+      const scale=Math.max(1,12/k);
+      // The echo tape is at most 240 scalar frames. Rewind samples it backwards.
+      const tape=e.history,index=e.phase==='rewind'?Math.floor((1-e.rewindPosition)*(tape.length-1)):tape.length-1;
+      if(['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
+        const frame=tape[Math.max(0,index-n*6)];
+        this.opacity=.12+(3-n)*.08;
+        this.dino(s,{y:frame[0],z:frame[2]*.45-n*.65*(e.phase==='rewind'?1-e.rewindPosition:1),scale,lod:true,color:[93,148,159]});
+      }
+      this.opacity=1;this.layer=4;this.hero=true;
+      // Feet/pose reverse too, without reversing simulation time or replaying input.
+      const presentation={...s,distance:e.pose*3,player:{...s.player,grounded:e.phase==='rewind' || e.phase==='payoff'}};
+      const boost=e.recoilAge<.45?Math.cos(e.recoilAge*18)*Math.exp(-e.recoilAge*7)*(s.reducedMotion?.2:1):0;
+      this.dino(presentation,{y:e.visualHeight,z:e.visualZ*.45,scale,boost});this.hero=false;
+      const puffs=e.phase==='rewind'?[e.puff]:s.effects;
+      for(const effect of puffs)if(effect && effect.age<.65) {
+        const t=effect.age/.65,bounce=s.reducedMotion?0:Math.sin(t*Math.PI)*.35;
+        this.opacity=(1-t)*.85;
+        const color=[[204,150,204],[242,185,99],[133,199,184]][effect.seed%3];
+        for(let n=0;n<3;n++) {
+          const size=(.65+Math.sin(t*Math.PI*.7)*1.1)*(n===1?1.15:.85)*scale;
+          this.organic(-.5,effect.height+(.8-n*.15-t*.45+bounce)*scale,effect.z-(.6+n*.5+t*1.5)*scale,
+            size,size,size*1.15,color);
+        }
+      }
+      this.opacity=1;
+    }
+    rewards(s,groundOnly=false) {
       // Brief, bounded world-space rings; no screen-space flashes or particle pool.
       this.layer=1;
       for(const effect of s.effects) {
-        const t=effect.age/1.5, radius=.6+t*(effect.big?12:3.5);
+        if(effect.puff)continue;
+        const t=effect.age/1.5, radius=.6+t*(s.reducedMotion?2:effect.big?12:5);
         const color=s.scene==='offline'?[135,145,148]:s.scene==='dream'?[151,98,174]:[109,210,196];
-        if(t<.75)for(let i=0;i<16;i++) {
+        if(groundOnly && t<.75)for(let i=0;i<16;i++) {
           const a=i*Math.PI/8,b=(i+1)*Math.PI/8;
           const p=(angle,r)=>[Math.cos(angle)*r,.055,effect.z+Math.sin(angle)*r];
-          this.polygon([p(a,radius),p(b,radius),p(b,radius+.12*(1-t)),p(a,radius+.12*(1-t))],color);
+          this.polygon([p(a,radius),p(b,radius),p(b,radius+.26*(1-t)),p(a,radius+.26*(1-t))],color);
         }
-        if(!effect.big)continue;
+        if(groundOnly || !effect.big || effect.scene!==s.scene)continue;
         this.layer=2;
         const lift=Math.sin(t*Math.PI)*(s.reducedMotion?2:4);
         if(s.scene==='desktop') {
           for(let side of [-1,1])for(let i=0;i<2;i++)
             this.windowBox(side*(5+i*1.8),2+i*.9+lift,9+i*3,3.8,2.8,i);
-        } else if(s.scene==='dream') {
-          for(let i=0;i<4;i++) {
-            const a=i*Math.PI/2;
-            this.dino(s,{x:Math.cos(a)*(11+t*4),y:5+Math.sin(a)*4+lift,z:22+Math.sin(a)*8,scale:1.8,lod:true,color:[181,123,167]});
-          }
         } else if(s.scene==='track') {
           for(const side of [-1,1])for(let i=0;i<3;i++)
             this.cactus(14+i*8,1,2.8+lift*.5,side*(5.8+i*2),0,[137,211,184],side*(s.reducedMotion?.12:t*.5));
@@ -832,7 +921,7 @@
       const palette=this.palette(s.scene), prev=this.palette(s.previousScene);
       const tone=palette.map((n,i)=>mix(prev[i],n,smooth(s.sceneTime/1.1)));
       // Lap one's flat views start from the actual page colour (light or dark).
-      this.base=s.lap===1&&['offline','rupture','extrusion'].includes(s.scene)?this.theme.page:[247,247,247];
+      this.base=['offline','rupture','extrusion','collapse','breath'].includes(s.scene)?this.theme.page:[247,247,247];
       const bg = this.base.map((n,i)=>Math.round(mix(n,tone[i],e)));
       this.background=bg;
       c.fillStyle = `rgb(${bg})`; c.fillRect(0,0,w,h);
@@ -843,7 +932,8 @@
       }
       if(this.medium==='ai-gouache')this.paintedSky(c);
       this.faces.length = 0;this.cost=0;this.gameplay=false;
-      this.world(s); this.gameplayWorld(live);
+      if(live.scene==='extreme')this.extremeWorld(live);
+      else {this.world(s); this.gameplayWorld(live);}
       // Ground/decal passes avoid average-depth floor polygons cutting through feet.
       // Above-ground meshes retain stable camera-space painter ordering.
       this.faces.sort((a,b)=>a.layer-b.layer || b.depth-a.depth || a.order-b.order);
@@ -906,11 +996,12 @@
       const ease=1-Math.exp(-dt/ .18);
       this.visual.bend=mix(this.visual.bend,s.scene==='dream'?1.6+s.morph*.8:0,ease);
       this.visual.lift=mix(this.visual.lift,s.scene==='desktop'?s.morph*.24:0,ease);
-      if(s.mode!=='running')this.handoff=null;
+      if(s.mode!=='running' || s.scene==='extreme')this.handoff=null;
       let blend=this.handoff?smooth((s.simTime-this.handoff.start)/this.handoff.duration):1;
       if(['pixel-8','chrome'].includes(this.handoff?.medium)&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
       if(blend>=1)this.handoff=null;
       // The integer runner ratio is only held while the Chromium sprites are on screen.
+      if(desired==='chrome'&&!this.native)this.setNative(Math.floor(devicePixelRatio)||1);
       if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
       // Both visible gameplay passes use this single current camera and transform.
       this.camera(s);
@@ -959,7 +1050,7 @@
       }
       if(s.mode!=='idle') {
         c.fillStyle=hudInk;c.font='10px ui-monospace, monospace';
-        c.fillText('LAP '+s.lap,w-22,64+36*this.hudDesktop);
+        c.fillText('LAP '+s.lap+(s.lap>1?' · '+s.speedMultiplier.toFixed(2)+'×':''),w-22,64+36*this.hudDesktop);
         if(s.combo>1)c.fillText(s.combo+' clears · ×'+s.multiplier,w-22,80+36*this.hudDesktop);
       }
       if(this.hudDesktop>.001) {
@@ -977,10 +1068,41 @@
         c.font='12px ui-monospace, monospace';c.fillText('The desktop could not contain it.',w*.09,h*.36+38);
         c.fillText('Restoring the dinosaur…',w*.09,h*.36+63);c.restore();
       }
-      if(s.scene==='finale' && !s.finalInput) {
-        // A quiet visual callback, not a new control instruction.
-        c.fillStyle='#23324b';c.textAlign='center';c.font='12px ui-monospace, monospace';
-        c.fillText('One more.',w*.5,h*.22);
+      if(s.scene==='extreme') {
+        const ex=s.extreme,k=this.extremeScale,top=this.cam.cy-ex.targetHeight*k;
+        c.save();c.textAlign='center';
+        const puff=ex.phase==='rewind'?ex.puff:s.effects[s.effects.length-1];
+        if(puff && puff.age<.5) {
+          const px=clamp(this.cam.cx+puff.z*k-24,38,w-50),py=clamp(this.cam.cy-puff.height*k+22,145,h-90);
+          c.save();c.translate(px,py);c.rotate(s.reducedMotion?0:Math.sin(puff.age*9)*.12);
+          c.globalAlpha=1-puff.age/.5;c.font='bold 12px ui-monospace, monospace';
+          c.lineWidth=4;c.strokeStyle='#fff8e8';c.fillStyle='#714763';
+          const word=['PFFT!','BRRRP!','POOT!'][puff.seed%3];c.strokeText(word,0,0);c.fillText(word,0,0);c.restore();
+        }
+        if(ex.phase==='payoff') {
+          const t=clamp(ex.time/1.4),x=clamp(this.cam.cx+ex.visualZ*.45*k+60,85,w-85),y=clamp(this.cam.cy-ex.visualHeight*k-12,157,h-110);
+          c.save();c.translate(x,y);
+          const pop=s.reducedMotion?1:1+Math.sin(Math.min(1,t*4)*Math.PI)*.16;c.scale(pop,pop);
+          c.fillStyle='#fff1a8';c.strokeStyle='#c37a4b';c.lineWidth=2;c.beginPath();
+          for(let i=0;i<20;i++){const a=i*Math.PI/10,r=i%2?31:40;c.lineTo(Math.cos(a)*r*1.7,Math.sin(a)*r*.65);}c.closePath();c.fill();c.stroke();
+          c.fillStyle='#354d43';c.font='bold 14px ui-monospace, monospace';c.fillText('TOP NOTCH!',0,5);
+          for(let i=0;i<8;i++) {
+            const a=i*Math.PI/4,travel=s.reducedMotion?0:Math.sin(t*Math.PI/2)*20;
+            c.save();c.translate(Math.cos(a)*(63+travel),Math.sin(a)*(28+travel));c.rotate(a+t*(s.reducedMotion?0:3));
+            c.fillStyle=['#cf7195','#499e87','#e9b34e'][i%3];c.fillRect(-3,-3,6,6);c.restore();
+          }c.restore();
+        }
+        c.fillStyle='#fff8e8';c.fillRect(0,h-65,w,65);
+        c.fillStyle='#263c3b';c.font='bold '+(w<450?11:14)+'px ui-monospace, monospace';
+        c.fillText('MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',w/2,h-43);
+        c.font='bold 18px ui-monospace, monospace';
+        c.fillText(ex.phase==='ready'?'EXTREME · GET READY':ex.caption=== 'REWIND ◀◀'?'REWIND ◀◀':ex.caption,w/2,h-18);
+        c.strokeStyle='#b34f43';c.lineWidth=1.5;c.setLineDash([5,5]);c.beginPath();
+        c.moveTo(w*.12,top);c.lineTo(w*.88,top);c.stroke();c.setLineDash([]);
+        c.font='bold 10px ui-monospace, monospace';c.textAlign='right';c.fillText('CLEAR THIS HEIGHT',w*.9,top-7);
+        c.textAlign='left';c.fillText(ex.phase==='active'?ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/10 TAPS · KEEP CLIMBING':ex.phase==='payoff'?'CLEARED · FASTER!':ex.phase==='rewind'?'BACK TO THE BEGINNING':'ONE CACTUS. KEEP TAPPING.',18,110);
+        c.fillStyle='#d1d6c7';c.fillRect(18,118,w-36,4);c.fillStyle='#47866b';c.fillRect(18,118,(w-36)*ex.progress,4);
+        c.restore();
       }
       }
       c.restore();

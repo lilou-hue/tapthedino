@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "Original synthetic arcade-announcer dialogue. Not a recording, imitation, or clone of a named performer or game announcer.",
+  "generation": {
+    "engine": "Piper TTS (offline generation only; engine and model are not shipped with the game)",
+    "model": "en_US-ljspeech-medium",
+    "modelCard": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD",
+    "dataset": "LJ Speech, public-domain recordings and transcripts",
+    "datasetSource": "https://keithito.com/LJ-Speech-Dataset/",
+    "training": "The model card states this voice was trained from scratch on LJ Speech, not fine-tuned from a Lessac voice.",
+    "processing": "Original short phrases, moderate pitch lowering with formants preserved, high/low-pass filtering, compression, short 55ms slap echo, limited output level. No third-party recording embedded."
+  },
+  "clips": {
+    "click-it.wav": { "text": "Click it!", "durationSeconds": 0.567375 },
+    "click-harder.wav": { "text": "Click harder!", "durationSeconds": 0.718333 }
+  },
+  "format": { "sampleRate": 24000, "channels": 1, "encoding": "16-bit PCM WAV" }
+}

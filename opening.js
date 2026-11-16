@@ -19,7 +19,7 @@
   const TREX = {width:44,height:47,groundY:HEIGHT-47-10,minJump:HEIGHT-47-10-30,maxJump:30,gravity:.6,initialVelocity:-10,dropVelocity:-5,startX:50,introDuration:1500};
   const RUNNING_BOXES = [[22,0,17,16],[1,18,30,9],[10,35,14,8],[1,24,29,5],[5,30,21,4],[9,34,15,4]];
   const ANIM = {waiting:{frames:[44,0],ms:1000/3},running:{frames:[88,132],ms:1000/12},crashed:{frames:[220],ms:1000/60},jumping:{frames:[0],ms:1000/60}};
-  const CONFIG = {speed:6,acceleration:.001,maxSpeed:13,gapCoefficient:.6,mobileSpeedCoefficient:1.2,clearTime:3000,gameoverClearTime:1200,maxObstacleDuplication:2,maxClouds:6,cloudFrequency:.5,bgCloudSpeed:.2};
+  const CONFIG = {speed:6,acceleration:.001,maxSpeed:8.3,gapCoefficient:.6,mobileSpeedCoefficient:1.2,clearTime:3000,gameoverClearTime:1200,maxObstacleDuplication:2,maxClouds:6,cloudFrequency:.5,bgCloudSpeed:.2};
   const MOON_PHASES = [140,120,100,60,40,20,0];
   // CSS "ease-out" (cubic-bezier(0,0,.58,1)), as used by the runner's .4s intro keyframes.
   const easeOut = t => {
@@ -42,6 +42,12 @@
       for(const key of ['1x','2x'])this.loadSheet(key,0);
       this.layout();this.reset();
     }
+    get hideRunner() { return !!this._hideRunner; }
+    set hideRunner(value) {
+      this._hideRunner=!!value;
+      // The world renderer owns the hero during handoff/fold, including a DPR reload.
+      if(this.fallback)this.fallback.hidden=this._hideRunner||this.ready;
+    }
     loadSheet(key,attempt) {
       // A few spaced retries; if one density never arrives the other is used (scaled).
       const image=new Image();image.decoding='async';
@@ -59,7 +65,7 @@
       this.sheetKey=this.sheets[want]?want:this.failed[want]&&this.sheets[other]?other:null;
       const ready=!!this.sheetKey;
       if(ready===this.ready)return;
-      this.ready=ready;this.canvas.hidden=!ready;this.fallback.hidden=ready;
+      this.ready=ready;this.canvas.hidden=!ready;this.fallback.hidden=ready||this.hideRunner;
       if(ready){this.layout();this.draw();}
     }
     get sheet() { return this.sheetKey?this.sheets[this.sheetKey]:null; }
@@ -102,11 +108,11 @@
       this.draw();
     }
     setSpeed(next) {
-      const o=this.o, speed=next||o.speed;
+      const o=this.o, speed=Math.min(next||o.speed,this.maxSpeed||CONFIG.maxSpeed);
       if(this.width<DEFAULT_WIDTH) {
         const mobile=speed*this.width/DEFAULT_WIDTH*CONFIG.mobileSpeedCoefficient;
         o.speed=mobile>speed?speed:mobile;
-      } else if(next) o.speed=next;
+      } else if(next) o.speed=speed;
     }
     containerWidth() {
       const o=this.o;
@@ -142,6 +148,17 @@
       o.night.phase=0;o.night.opacity=0;this.nightUpdate(false);
       this.resetTrex();
       Object.assign(o.panel,{frame:0,timer:0,shownFrames:0});
+    }
+    advanceTail(dt=FRAME_MS) {
+      // Presentation only after the phase ends: no collisions, clears, or new spawns.
+      const o=this.o,travel=Math.floor(o.speed*60/1000*dt);
+      for(const obstacle of o.obstacles)obstacle.x-=travel;
+      o.obstacles=o.obstacles.filter(obstacle=>obstacle.x+obstacle.width>0);
+    }
+    recoverContact() {
+      // Later-lap session damage is owned by game.js, not Chromium's free-attempt reset.
+      const o=this.o;o.obstacles.shift();o.playing=true;o.crashed=false;o.crashMs=0;
+      this.resetTrex();
     }
     // --- Simulation ------------------------------------------------------------------
     setStatus(status) {
@@ -297,7 +314,7 @@
         events.crashed=true;return events;
       }
       o.distanceRan+=o.speed*delta/FRAME_MS;
-      if(o.speed<CONFIG.maxSpeed)o.speed+=CONFIG.acceleration;
+      if(o.speed<(this.maxSpeed||CONFIG.maxSpeed))o.speed=Math.min(this.maxSpeed||CONFIG.maxSpeed,o.speed+CONFIG.acceleration);
       events.reached=this.meterUpdate(delta);
       this.trexUpdate(delta);
       // Chromium starts the game on the intro's animationend; here at its 400 ms end.

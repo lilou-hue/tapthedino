@@ -12,7 +12,9 @@
   const platform = navigator.platform;
   if(platform.startsWith('Mac')) opening.style.fontFamily='"Helvetica Neue", Helvetica, Arial, sans-serif';
   else if(platform.startsWith('Win')) opening.style.fontFamily='"Segoe UI", Tahoma, sans-serif';
-  const offline = document.getElementById('offline');
+  const pausePanel = document.getElementById('pause-panel');
+  const pauseButton = document.getElementById('pause');
+  const lapStatus = document.getElementById('lap-status');
   const chapter = document.getElementById('chapter');
   const mute = document.getElementById('mute');
   const bank = document.getElementById('bank');
@@ -45,6 +47,7 @@
   const runner = new ChromeOpening(document.getElementById('runner'), document.getElementById('runner-canvas'), opening.querySelector('.chrome-dino'), seed);
   runner.onSheet=(key,image)=>renderer.setChromeSheet(key,image);
   let s, accumulator=0, last=performance.now(), paused=document.hidden, runSerial=0, cardShownAt=0, frozen=false, debugUsed=false;
+  let userPaused=false, focusPaused=document.hidden;
   let frameCount=0, frameSum=0, slowFrames=0, renderSum=0;
 
   function theme() {
@@ -53,30 +56,30 @@
     renderer.theme={dark,page:dark?[32,33,36]:[255,255,255],ink:dark?[172,172,172]:[83,83,83]};
   }
   // Lap one's offline phase IS the page's runner; no other game surface exists yet.
-  const inOpening = () => s.lap===1 && (s.mode==='idle' || s.scene==='offline');
-  const inHandoff = () => s.lap===1 && (s.scene==='rupture' || s.scene==='extrusion');
-  const phase = () => inOpening()?'opening':inHandoff()?'handoff':'game';
+  const inOpening = () => (s.mode==='idle' || s.scene==='offline' || s.scene==='breath');
+  const inHandoff = () => (s.scene==='rupture' || s.scene==='extrusion');
+  const phase = () => inOpening()?'opening':inHandoff()?'handoff':s.scene==='collapse'?'fold':'game';
 
   function dismissCard() { card.hidden=true; }
   function reset() {
-    dismissCard(); audio.pause();
+    dismissCard(); audio.pause();audio.setExtreme(false);
     s = {
       mode:'idle', scene:'offline', previousScene:'offline', sceneTime:0, simTime:0, beat:0,
-      speed:8, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
+      speed:8, speedMultiplier:1, approachTTC:2.4, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
       health:MAX_HEALTH, maxHealth:MAX_HEALTH, recovery:0,
       lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0, waveTime:-100,
       earned:0, fallback:0, transitions:[], projectionBlend:0, extrusion:0,
-      obstacles:[], monuments:[], windows:[], city:[], pending:0, nextSpawn:2.7, serial:0,
+      obstacles:[], clearedTail:[], monuments:[], windows:[], city:[], pending:0, nextSpawn:2.7, serial:0,
       sceneDistance:0, worldRoll:0, rollFrom:0, rollTarget:0, rollTime:1,
       morph:0, morphTarget:0, lastJumpTime:-100, finalInput:false, finalJumpTime:0, finalJumpSerial:null,
-      dropAt:0, cascadeCount:0,
+      dropAt:0, cascadeCount:0, extreme:null, extremeCleared:false, inputCount:0,
       player:{height:0,velocity:0,grounded:true,buffer:0,stumble:0,jumps:0},
       echoes:1, completion:null, reported:false, debugAssisted:debugMode&&(seed!==null||debugUsed), reducedMotion,
       run:++runSerial, previousBest:Number(stored(bestKey))||0,
       // Opening/handoff bookkeeping (lap one only).
       ticks:0, chromeJump:false, revealAt:null, flatAnchor:null, handoffAt:null, heroFrame:RUN_FRAMES[0], heroIndex:0, heroTimer:0, openingCrashes:0
     };
-    runner.reset();warmRenderer();
+    opening.hidden=false;runner.hideRunner=false;runner.layout();runner.maxSpeed=8.3;runner.reset();warmRenderer();
     accumulator=0; last=performance.now();
     chapter.textContent='';root.dataset.spatial='false';root.dataset.scene='offline';
     present(0);
@@ -102,24 +105,30 @@
     healthCue.textContent=cue;
   }
   function nextLap() {
-    if(s.mode!=='running' || s.health<=0 || s.scene!=='breath' || !s.finalInput) return;
+    if(s.mode!=='running' || s.health<=0 || s.scene!=='breath' || !s.extremeCleared) return;
     s.health=Math.min(s.maxHealth,s.health+1);
     // Session identity, time, score, earned totals and captured best survive the breath.
     s.lap++;s.variant=(s.lap-1)%3;
+    s.speedMultiplier=Math.min(1.7,1+.14*(s.lap-1));s.speed=8*s.speedMultiplier;
+    s.approachTTC=Math.max(1.45,2.4/s.speedMultiplier);
     Object.assign(s,{success:0,target:2,lapEarned:0,lapScore:0,nextSpawn:.65,
       pending:0,combo:0,multiplier:1,echoes:1,morph:0,morphTarget:0,
-      finalInput:false,finalJumpTime:0,finalJumpSerial:null,dropAt:0,cascadeCount:0,
+      finalInput:false,finalJumpTime:0,finalJumpSerial:null,extreme:null,extremeCleared:false,dropAt:0,cascadeCount:0,
       worldRoll:0,rollFrom:0,rollTarget:0,rollTime:1,impact:0,burst:0,waveTime:-100,lastJumpTime:-100});
     s.obstacles.length=0;s.monuments.length=0;s.windows.length=0;s.city.length=0;s.effects.length=0;
     Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0,stumble:0});
+    s.clearedTail.length=0;s.chromeJump=false;s.ticks=0;s.flatAnchor=null;
     enter('offline','lap');
+    runner.maxSpeed=8.3;runner.setSpeed(Math.min(7.55,6*s.speedMultiplier));
+    // The quiet, original idle page has already breathed; subsequent laps start themselves.
+    if(runner.ready){runner.jump();s.player.jumps++;audio.chrome('press');s.revealAt=s.simTime;}
   }
   function begin() {
     // The first input starts the visible idle dinosaur; nothing else changes on screen.
     s.mode='running';audio.unlock();
   }
   function action() {
-    if(paused || document.hidden || s.mode==='complete') return;
+    if(paused || document.hidden || s.mode==='complete' || ['collapse','breath'].includes(s.scene)) return;
     // Like Chromium, the runner cannot start before its sprites exist (no invisible hazards).
     if(s.mode==='idle') {if(!runner.ready)return;begin();}
     if(audio.context?.state!=='running') audio.unlock();
@@ -137,20 +146,38 @@
       return;
     }
     // The same buffered jump in every later view. No alternate airborne action.
+    s.inputCount++;
+    if(s.scene==='extreme') {
+      audio.fart();
+      const e=s.extreme;
+      s.effects.push({age:0,z:e.visualZ*.45,height:e.visualHeight,puff:true,big:false,seed:s.inputCount});
+      if(s.effects.length>8)s.effects.shift();
+      if(e.phase!=='rewind')e.puff=s.effects[s.effects.length-1];
+      if(e.phase==='active') {
+        e.acceptedPresses++;e.boostAt=s.sceneTime;
+        if(e.firstPress===null)e.firstPress=e.time;
+        // An 8-unit/second ascent envelope makes late bursts fail visibly, not via a hidden time gate.
+        s.player.height=Math.min(30,1.35+8*(e.time-e.firstPress),s.player.height+1.35);
+        s.player.velocity=Math.min(7,s.player.velocity+4.5);
+        s.player.grounded=false;s.player.jumps++;s.lastJumpTime=s.simTime;
+      }
+      return;
+    }
     s.player.buffer=.16;
     jumpIfReady();
   }
-  const chromeArc = () => s.lap===1 && (s.scene==='rupture' || (s.scene==='extrusion' && s.extrusion<.025));
+  const chromeArc = () => (s.scene==='rupture' || (s.scene==='extrusion' && s.extrusion<.025));
   function release(key) {
     if(!s || paused) return;
     if(s.chromeJump){if(key!=='Enter')runner.endJump();return;}
-    if(!inOpening()) return;
+    if(!inOpening() || s.scene==='breath') return;
     const o=runner.o;
     if(o.crashed) {if(runner.canRetry(key))retryOpening();}
     else if(key!=='Enter') runner.release();
   }
   function retryOpening() {
     // Chromium's in-place restart; this attempt's clears (and their score) are discarded.
+    if(s.lap!==1)return;
     runner.restart();audio.chrome('press');
     Object.assign(s,{success:0,pending:0,score:0,lapScore:0,earned:0,lapEarned:0,combo:0,multiplier:1,sceneTime:0,ticks:0});
     Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0,stumble:0});
@@ -159,16 +186,12 @@
     const p=s.player;
     if(p.buffer<=0 || !p.grounded) return;
     p.buffer=0; p.grounded=false; p.velocity=7.7; p.jumps++;
-    s.lastJumpTime=s.simTime;
-    if(s.scene==='finale' && !s.finalInput) {
-      s.finalInput=true;s.finalJumpTime=s.sceneTime;s.finalJumpSerial=p.jumps;
-    }
-    if(!['finale','coalesce','crash','collapse','breath'].includes(s.scene)) audio.jump(s.scene==='offline');
+    s.lastJumpTime=s.simTime;audio.jump(s.scene==='offline');
   }
   function anchorFromRunner() {
     // Snap to device pixels as the compositor does for the runner canvas itself.
     const g=runner.geometry(),a=s.flatAnchor,d=devicePixelRatio||1,snap=n=>Math.round(n*d)/d;
-    a.left=snap(g.left);a.width=g.width;a.cx=a.left+a.heroX+22;a.cy=snap(g.top)+134;
+    a.left=snap(g.left);a.width=s.scene==='collapse'?g.containerWidth:g.width;a.cx=a.left+a.heroX+22;a.cy=snap(g.top)+134;
   }
   function beginHandoff() {
     // Transfer the live runner geometry: same hero, same ground row, same horizon texture.
@@ -176,7 +199,7 @@
     s.flatAnchor={scale:UNIT,heroX:t.x,horizonX:g.horizonX,horizonSrc:g.horizonSrc,distance:s.distance,left:0,width:0,cx:0,cy:0};
     anchorFromRunner();
     s.heroIndex=t.status==='running'?t.frameIndex:0;s.heroTimer=t.status==='running'?t.timer:0;
-    s.heroFrame=RUN_FRAMES[s.heroIndex];s.handoffAt=s.simTime;s.ticks=0;
+    s.heroFrame=RUN_FRAMES[s.heroIndex];s.handoffAt=s.simTime;s.ticks=0;s.chromeTailTime=0;
     runner.hideRunner=true;
     renderer.setNative(Math.floor(devicePixelRatio)||1);
   }
@@ -186,12 +209,19 @@
       if(s.transitions.length>48)s.transitions.shift();
       if(reason==='deadline') s.fallback++;
     }
+    audio.setExtreme(scene==='extreme');
     s.previousScene=s.scene;s.scene=scene;s.sceneTime=0;s.sceneDistance=0;
-    s.obstacles.length=0;s.pending=0;s.effects.length=0;s.impact=0;s.burst=0;
+    // Only cleared geometry survives a phrase boundary; it has no collision/score path.
+    s.clearedTail.push(...s.obstacles.filter(o=>o.clear).map(o=>({...o})));
+    if(s.clearedTail.length>8)s.clearedTail.splice(0,s.clearedTail.length-8);
+    s.obstacles.length=0;s.pending=0;
+    // A phrase-ending landing still gets its brief response through the handoff.
+    // Keep only genuine earned feedback; deadlines and non-play transitions reset it.
+    if(reason!=='earned' || s.impact<=0){s.effects.length=0;s.impact=0;s.burst=0;}
     if(scene==='rupture') {
       s.dropAt=Math.ceil((s.simTime+1.2)/BEAT)*BEAT;
       audio.stopVoices();
-      if(s.lap===1)beginHandoff();
+      beginHandoff();
     } else if(scene==='extrusion') {
       s.monuments=[{z:28,side:-1,scale:7,age:0},{z:43,side:1,scale:9,age:0}];
     } else if(PHRASES[scene]) {
@@ -207,10 +237,22 @@
       s.city=Array.from({length:24},(_,i)=>({id:i,z:18+i*9,brokenAt:null,height:5+(i%4)*2}));
     } else if(scene==='coalesce') {
       s.target=0;s.success=0;audio.stopVoices();
-    } else if(scene==='finale') {
-      s.finalInput=false;s.finalJumpTime=0;s.finalJumpSerial=null;s.target=1;s.success=0;s.player.buffer=0;audio.stopVoices();
+    } else if(scene==='extreme') {
+      s.finalInput=false;s.extremeCleared=false;s.target=1;s.success=0;
+      Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
+      s.worldRoll=0;s.rollFrom=0;s.rollTarget=0;s.morph=0;s.morphTarget=0;
+      s.extreme={phase:'ready',time:0,targetHeight:24,ttc:6,acceptedPresses:0,
+        firstPress:null,progress:0,cleared:false,contact:false,cactusZ:24,
+        caption:'MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',cue:-1,
+        rewindPosition:0,history:[[0,24,0,0,10,10,0,0,0]],sample:0,visualHeight:0,visualZ:0,pose:0,
+        boostAt:-100,recoilAge:10,puff:null};
+      audio.stopVoices();
     } else if(scene==='collapse') {
-      s.success=1;s.target=1;s.player.buffer=0;
+      s.success=1;s.target=1;s.player.buffer=0;s.revealAt=null;s.chromeJump=false;
+      // Hidden DOM has no geometry: reveal transparently, lay out, then acquire the true idle anchor.
+      opening.hidden=false;root.dataset.phase='fold';openingBody.style.opacity='0';
+      runner.hideRunner=true;runner.layout();runner.reset();beginHandoff();
+      s.heroFrame=0;anchorFromRunner();
       audio.payoff();
     } else if(scene==='breath') {
       s.extrusion=0;s.projectionBlend=0;s.worldRoll=0;s.rollFrom=0;s.rollTarget=0;s.rollTime=1;audio.stopVoices();
@@ -247,7 +289,6 @@
   }
   function landed() {
     if(s.mode!=='running') return;
-    if(s.scene==='finale' && s.finalInput && s.player.jumps===s.finalJumpSerial) {enter('collapse','input-landing');return;}
     if(!s.pending) return;
     // The page's runner has no clear chime, ring or impact; only the hidden count moves.
     const quiet=inOpening();
@@ -272,8 +313,8 @@
     if(allowSpawn)s.nextSpawn-=dt;
     if(allowSpawn && s.nextSpawn<=0 && s.obstacles.length<5) {
       // Spawn with a fixed TTC, regardless of viewport or camera.
-      s.obstacles.push({id:++s.serial,z:s.speed*2.4,resolved:false,clear:false,hit:false});
-      s.nextSpawn=PHRASES[s.scene]?.interval || 2.45;
+      s.obstacles.push({id:++s.serial,z:s.speed*s.approachTTC,resolved:false,clear:false,hit:false});
+      s.nextSpawn=s.scene==='stampede'?2.45:Math.max(1.4,(PHRASES[s.scene]?.interval || 2.45)/Math.sqrt(s.speedMultiplier));
     }
     for(const o of s.obstacles) {
       o.z-=s.speed*dt;
@@ -296,7 +337,9 @@
   }
   function stepOpening(dt) {
     // Chromium's runner advances at a fixed 60 Hz: one runner frame per two steps.
+    if(s.lap>1 && !runner.o.started && runner.ready){runner.jump();s.player.jumps++;s.revealAt=s.simTime;audio.chrome('press');}
     const o=runner.o,tick=++s.ticks%2===0;
+    s.recovery=Math.max(0,s.recovery-dt);
     if(o.crashed) {if(tick)runner.frame();return;}
     s.simTime+=dt;s.sceneTime+=dt;s.beat=s.simTime/BEAT;
     let justLanded=false;
@@ -305,6 +348,13 @@
       if(events.crashed) {
         // The attempt ends visibly, in place. No heart, no deadline, no score write.
         s.openingCrashes++;s.combo=0;s.multiplier=1;s.pending=0;audio.chrome('hit');
+        if(s.lap>1) {
+          if(s.recovery<=0){s.health=Math.max(0,s.health-1);s.recovery=RECOVERY;}
+          if(s.health===0){finishRun('death');return;}
+          runner.recoverContact();
+          Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
+          return;
+        }
         if(navigator.vibrate && navigator.maxTouchPoints>0 && /Android/.test(navigator.userAgent))navigator.vibrate(200);
         return;
       }
@@ -319,10 +369,10 @@
   function update(dt) {
     if(s.mode==='idle'){if(++s.ticks%2===0)runner.frame();return;}
     if(s.mode!=='running') return;
-    if(inOpening()) {stepOpening(dt);return;}
-    // Anticipation is finite, but the ordinary final input is never fabricated by a clock.
-    const waiting=s.scene==='finale' && !s.finalInput && s.player.grounded;
-    if(!waiting) {s.simTime+=dt;s.sceneTime+=dt;}
+    if(inOpening() && s.scene!=='breath') {stepOpening(dt);return;}
+    s.simTime+=dt;s.sceneTime+=dt;
+    for(const o of s.clearedTail)o.z-=s.speed*dt;
+    s.clearedTail=s.clearedTail.filter(o=>o.z>-8);
     s.beat=s.simTime/BEAT;
     s.recovery=Math.max(0,s.recovery-dt);
     s.impact=Math.max(0,s.impact-dt);s.burst=Math.max(0,s.burst-dt);
@@ -339,20 +389,23 @@
         else {p.height=(ChromeOpening.TREX.groundY-t.y)/UNIT;p.velocity=-t.v*60/UNIT;}
       }
     } else {
-    jumpIfReady();
-    if(!p.grounded) {
+    if(s.scene!=='extreme')jumpIfReady();
+    if(!p.grounded && s.scene!=='extreme') {
       p.velocity-=18*dt;p.height+=p.velocity*dt;
       if(p.height<=0) {p.height=0;p.velocity=0;p.grounded=true;justLanded=true;landed();jumpIfReady();}
     }
     }
     if(inHandoff()) {
+      // The runner's existing cacti also travel out of its box, without gameplay events.
+      s.chromeTailTime+=dt;
+      if(s.chromeTailTime>=1/60){s.chromeTailTime-=1/60;runner.advanceTail();}
       // The runner's two-frame gait carries on through the handoff.
       s.heroTimer+=dt*1000;
       if(s.heroTimer>=1000/12){s.heroTimer=0;s.heroIndex^=1;}
       s.heroFrame=RUN_FRAMES[s.heroIndex];
     }
     // The suspense arrests forward travel, not the meaning of a jump input.
-    if(!['rupture','coalesce','finale','collapse','breath','crash'].includes(s.scene)) {
+    if(!['rupture','coalesce','extreme','collapse','breath','crash'].includes(s.scene)) {
       s.distance+=s.speed*dt;s.sceneDistance+=s.speed*dt;
     }
     // Do the spectacular turn after landing, then settle before the next contact.
@@ -365,11 +418,7 @@
     if(s.scene==='stampede')for(const tower of s.city)tower.z-=s.speed*dt;
     for(const m of s.monuments) {m.age+=dt;if(s.scene==='track')m.z-=s.speed*dt*.44;}
     s.monuments=s.monuments.filter(m=>m.z>-14);
-    if(s.scene==='offline') {
-      obstacles(dt);
-      if(s.mode!=='running') return;
-      if(s.sceneTime>=(s.lap===1?12.5:8) && (p.grounded || justLanded)) enter('rupture','deadline');
-    } else if(s.scene==='rupture') {
+    if(s.scene==='rupture') {
       if(s.simTime>=s.dropAt) enter('extrusion');
     } else if(s.scene==='extrusion') {
       s.extrusion=smooth(s.sceneTime/2.9);
@@ -395,14 +444,69 @@
       if(s.mode!=='running') return;
       if(s.sceneTime>=16 && (p.grounded || justLanded)) enter('coalesce',s.success>=5?'earned':'deadline');
     } else if(s.scene==='coalesce') {
-      if(s.sceneTime>=2.2) enter('finale');
+      if(s.sceneTime>=2.2) enter('extreme');
+    } else if(s.scene==='extreme') {
+      updateExtreme(dt);
     } else if(s.scene==='collapse') {
       const fold=smooth(s.sceneTime/2.25);
       s.projectionBlend=1-fold;s.extrusion=1-fold;
       if(s.sceneTime>=2.4) enter('breath');
     } else if(s.scene==='breath') {
-      if(s.sceneTime>=1.15 && s.finalInput) nextLap();
+      if(++s.ticks%2===0)runner.frame();
+      if(s.sceneTime>=1.15 && s.extremeCleared && runner.ready) nextLap();
     }
+  }
+  // Fixed-time collision; the small scalar tape is presentation only, never simulation replay.
+  function updateExtreme(dt) {
+    const e=s.extreme,p=s.player;e.time+=dt;
+    if(e.phase!=='rewind')e.recoilAge=s.sceneTime-e.boostAt;
+    if(e.phase==='ready') {
+      if(e.time>=1.5){e.phase='active';e.time=0;e.cue=-1;}
+      return;
+    }
+    if(e.phase==='active') {
+      p.velocity=Math.max(-9,p.velocity-5*dt);
+      p.height=clamp(p.height+p.velocity*dt,0,e.firstPress===null?0:Math.min(30,1.35+8*(e.time-e.firstPress)));
+      if(p.height===0){p.velocity=0;p.grounded=true;}
+      e.ttc=Math.max(0,6-e.time);e.cactusZ=4*e.ttc;
+      e.progress=clamp(p.height/e.targetHeight);
+      if(e.time>=6 && !e.contact) {
+        e.contact=true;
+        if(e.acceptedPresses<10 || e.firstPress===null || p.height<e.targetHeight) {
+          s.health=0;finishRun('death');return;
+        }
+        // Legacy finalInput is an alias for this genuine contact proof, not a fabricated jump.
+        e.cleared=true;s.extremeCleared=true;s.finalInput=true;s.success=1;
+        // Exactly one capped bonus, never points per press or a fallback success.
+        s.score+=150;s.lapScore+=150;s.earned++;s.lapEarned++;
+        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;
+      }
+    } else if(e.phase==='payoff') {
+      const t=clamp(e.time/1.4);
+      e.visualZ=8*t*t;e.cactusZ=-12*t*t;
+      p.height=e.clearHeight+(30-e.clearHeight)*Math.sin(t*Math.PI/2);
+      if(e.time>=1.4){e.phase='rewind';e.time=0;e.cue=-1;audio.rewind();}
+    } else if(e.phase==='rewind') {
+      e.rewindPosition=clamp(e.time/2.2);
+      const index=(1-e.rewindPosition)*(e.history.length-1),i=Math.floor(index),f=index-i;
+      const a=e.history[i],b=e.history[Math.min(i+1,e.history.length-1)];
+      e.visualHeight=a[0]+(b[0]-a[0])*f;e.cactusZ=a[1]+(b[1]-a[1])*f;
+      e.visualZ=a[2]+(b[2]-a[2])*f;e.pose=a[3]+(b[3]-a[3])*f;
+      e.recoilAge=a[4]+(b[4]-a[4])*f;
+      // Reuse the scalar tape: the most recent cloud shrinks back into its boost.
+      e.puff={age:a[5],height:a[6],z:a[7],seed:a[8]};
+      e.caption='REWIND ◀◀';
+      if(e.time>=2.2){Object.assign(p,{height:0,velocity:0,grounded:true,buffer:0});enter('collapse','extreme-cleared');}
+      return;
+    }
+    e.visualHeight=p.height;e.pose+=dt*(e.phase==='payoff'?1+e.time*8:1);
+    e.sample+=dt;
+    if(e.sample>=1/30){e.sample-=1/30;if(e.history.length<240)e.history.push([e.visualHeight,e.cactusZ,e.visualZ,e.pose,e.recoilAge,e.puff?.age??10,e.puff?.height??0,e.puff?.z??0,e.puff?.seed??0]);}
+    if(e.phase==='rewind'){e.caption='REWIND ◀◀';return;}
+    const times=e.phase==='payoff'?[0,.48,.86,1.15]:[0,1.6,3,4,4.8,5.45];
+    let cue=0;for(let i=0;i<times.length;i++)if(e.time>=times[i])cue=i;
+    if(cue!==e.cue){e.cue=cue;e.caption=cue===1?'Click harder!':'Click it!';
+      audio.announce(cue===1?'click-harder':'click-it',e.phase==='payoff'?1.15+cue*.16:1+cue*.055);}
   }
   function finishRun(reason) {
     if(s.mode!=='running' || s.reported) return;
@@ -411,6 +515,7 @@
     s.banked=reason==='banked';s.completion=reason;s.mode='complete';
     s.player.buffer=0;s.player.velocity=0;s.pending=0;s.recovery=0;
     if(reason==='death') {s.combo=0;s.multiplier=1;}
+    userPaused=false;pausePanel.hidden=true;pauseButton.hidden=true;
     audio.pause();bankState();healthState();
     if(s.debugAssisted) return;
     s.reported=true;
@@ -443,24 +548,24 @@
     if(root.dataset.phase!==current)root.dataset.phase=current;
     const revealed=String(s.revealAt!==null);
     if(root.dataset.revealed!==revealed)root.dataset.revealed=revealed;
+    // Fold and handoff share the real page; the canvas owns the hero until the swap.
+    const pageVisible=current!=='game';
+    if(opening.hidden===pageVisible){opening.hidden=!pageVisible;if(pageVisible)runner.layout();}
     let dissolve=0;
     if(current==='handoff') {
-      anchorFromRunner();
-      dissolve=smooth((s.simTime-s.handoffAt)/(reducedMotion?1.6:1.3));
-    }
-    if(current!=='game') {
-      // Opacity only on the page body: a transform there would re-anchor its fixed footer.
-      const opacity=String(1-dissolve),shift=reducedMotion||!dissolve?'':`translateY(${(dissolve*10).toFixed(2)}px)`;
+      anchorFromRunner();dissolve=smooth((s.simTime-s.handoffAt)/(reducedMotion?1.6:1.3));
+    } else if(current==='fold') {anchorFromRunner();dissolve=1-smooth((s.sceneTime-1.65)/.6);}
+    if(pageVisible) {
+      const opacity=String(1-dissolve),shift=current==='handoff'&&!reducedMotion&&dissolve?`translateY(${(dissolve*10).toFixed(2)}px)`:'';
       if(openingBody.style.opacity!==opacity)openingBody.style.opacity=opacity;
       if(openingMessage.style.transform!==shift)openingMessage.style.transform=shift;
-      runner.hideRunner=current==='handoff';runner.draw();
+      runner.hideRunner=current==='handoff'||current==='fold';runner.draw();
     }
-    if(opening.hidden!==(current==='game'))opening.hidden=current==='game';
     if(current!=='opening') renderer.draw(s);
     bankState();healthState();
-    // The invented offline copy belongs to later laps' breath, never to the page's opening.
-    const opacity=s.lap===1&&['offline','rupture','extrusion'].includes(s.scene)?'0':['offline','breath'].includes(s.scene)?'1':s.scene==='rupture'?String(1-smooth(s.sceneTime/1.1)):s.scene==='collapse'?String(smooth((s.sceneTime-1.8)/.6)):'0';
-    if(offline.style.opacity!==opacity)offline.style.opacity=opacity;
+    pauseButton.hidden=s.mode!=='running'||s.revealAt===null||userPaused;
+    lapStatus.hidden=s.lap===1||s.revealAt===null||s.mode!=='running';
+    if(!lapStatus.hidden)lapStatus.textContent=`${s.score} · LAP ${s.lap} · ${s.speedMultiplier.toFixed(2)}×`;
     if(current!=='opening'){frameCount++;frameSum+=Math.min(elapsed,1)*1000;renderSum+=renderer.stats.renderMs;if(elapsed>.025)slowFrames++;}
   }
   function frame(now) {
@@ -475,12 +580,20 @@
     if(!document.hidden) present(elapsed);
     requestAnimationFrame(frame);
   }
-  function setPause(value) {
+  function syncPause() {
+    const value=userPaused||focusPaused||document.hidden;
+    if(paused===value)return;
     paused=value;accumulator=0;last=performance.now();s.player.buffer=0;
     if(value)audio.pause();else if(s.mode==='running')audio.unlock();
   }
-  function restart() {reset();document.activeElement?.blur();}
-  function toggleMute() {muted=!muted;store('a1NoInternetMuted',muted?'1':'0');audio.setMuted(muted);muteLabel();}
+  function setUserPause(value) {
+    if(s.mode==='complete')return;
+    userPaused=value;pausePanel.hidden=!value;bankState();syncPause();
+    if(value)document.getElementById('resume').focus({preventScroll:true});
+    else document.activeElement?.blur();
+  }
+  function restart() {userPaused=false;pausePanel.hidden=true;reset();syncPause();document.activeElement?.blur();}
+  function toggleMute() {muted=!muted;store('a1NoInternetMuted',muted?'1':'0');audio.setMuted(muted,!paused&&s.mode==='running');muteLabel();}
   const editable = target => target.closest?.('button,a,input,textarea,select,[contenteditable]');
   document.addEventListener('keydown',e=>{
     // The end card's own keys: Space/Enter play again, Escape dismisses.
@@ -492,7 +605,10 @@
     }
   });
   addEventListener('keydown',e=>{
-    if(e.defaultPrevented || e.repeat || editable(e.target)) return;
+    if(e.defaultPrevented || e.repeat) return;
+    if(e.key==='Escape' && s.mode!=='complete'){e.preventDefault();setUserPause(!userPaused);return;}
+    if(e.code==='KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey){e.preventDefault();toggleMute();return;}
+    if(userPaused || editable(e.target)) return;
     if(e.code==='Space' || e.code==='ArrowUp') {e.preventDefault();action();}
     else if(e.code==='KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey) toggleMute();
   });
@@ -511,9 +627,16 @@
   });
   game.addEventListener('pointerup',e=>{if(e.isPrimary)release(insideRunner(e)?'tap':'Space');});
   game.addEventListener('pointercancel',()=>{s.player.buffer=0;});
-  addEventListener('blur',()=>setPause(true));
-  addEventListener('focus',()=>setPause(document.hidden));
-  document.addEventListener('visibilitychange',()=>setPause(document.hidden));
+  addEventListener('blur',()=>{focusPaused=true;syncPause();});
+  addEventListener('focus',()=>{focusPaused=false;syncPause();});
+  document.addEventListener('visibilitychange',()=>{focusPaused=document.hidden;syncPause();});
+  pauseButton.addEventListener('click',()=>setUserPause(true));
+  document.getElementById('resume').addEventListener('click',()=>setUserPause(false));
+  pausePanel.addEventListener('keydown',e=>{
+    if(e.key!=='Tab')return;
+    const buttons=[...pausePanel.querySelectorAll('button:not(:disabled)')],i=buttons.indexOf(document.activeElement);
+    e.preventDefault();buttons[(i+(e.shiftKey?-1:1)+buttons.length)%buttons.length].focus();
+  });
   addEventListener('resize',()=>{theme();renderer.resize();runner.layout();});
   darkQuery.addEventListener('change',theme);
   bank.addEventListener('click',()=>finishRun('banked'));
@@ -532,12 +655,12 @@
   function snapshot() {
     const next=s.obstacles.find(o=>!o.resolved),a=s.flatAnchor;
     return freeze({
-      version:3,health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
-      effectCounts:{impacts:s.effects.length,bursts:s.effects.filter(e=>e.big).length,transitions:s.transitions.length},mode:s.mode,scene:s.scene,sceneTime:s.sceneTime,success:s.success,target:s.target,
+      version:5,speed:s.speed,speedMultiplier:s.speedMultiplier,approachTTC:s.approachTTC,distance:s.distance,userPaused,focusPaused,clearedTail:s.clearedTail.map(o=>({...o})),health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
+      effectCounts:{puffs:s.effects.filter(e=>e.puff).length,impacts:s.effects.length,bursts:s.effects.filter(e=>e.big).length,transitions:s.transitions.length},mode:s.mode,scene:s.scene,sceneTime:s.sceneTime,success:s.success,target:s.target,
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
       simTime:s.simTime,beat:s.beat,playerHeight:s.player.height,player:{...s.player},
       nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:s.echoes,
-      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:s.scene==='finale'&&!s.finalInput,cascadeCount:s.cascadeCount,
+      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
       entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:s.windows.length,towers:s.city.length,echoes:s.echoes,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,

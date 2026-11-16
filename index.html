@@ -16,7 +16,7 @@
   <link rel="canonical" href="https://tapthedino.com/">
   <meta property="og:url" content="https://tapthedino.com/">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=43">
+  <link rel="stylesheet" href="styles.css?v=44">
 </head>
 <body>
   <section id="chrome-opening" aria-label="Tap the Dino">
@@ -43,19 +43,22 @@
     </div>
   </section>
   <canvas id="game" aria-label="Dinosaur transformation game. Space or tap to jump."></canvas>
-  <section id="offline" aria-label="Offline page">
-    <h1>No internet</h1>
-    <p>The connection seems to have disappeared.</p>
-    <p>The dinosaur is still here.</p>
-    <p class="code">ERR_INTERNET_DISCONNECTED</p>
-  </section>
   <div id="chapter" aria-live="polite"></div>
   <div id="health" role="img" aria-live="polite" aria-label="3 of 3 hearts"><span class="hearts" aria-hidden="true">♥♥♥</span><span class="health-cue" aria-hidden="true"></span></div>
-  <nav id="bar" aria-label="Game controls">
-    <button id="again" type="button" title="Start again" aria-label="Start again">↻</button>
-    <button id="bank" type="button" disabled title="Finish and keep this score">Bank score</button>
-    <button id="mute" type="button" title="Sound (M)" aria-label="Sound">♪</button>
-  </nav>
+  <div id="lap-status" hidden aria-label="Session score and lap speed"></div>
+  <button id="pause" type="button" hidden aria-label="Pause (Escape)" title="Pause (Esc)">Ⅱ</button>
+  <section id="pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title" hidden>
+    <div class="pause-content">
+      <h2 id="pause-title">Paused</h2>
+      <p>Space / tap to jump · M for sound · Esc to resume</p>
+      <nav id="bar" aria-label="Paused game controls">
+        <button id="resume" type="button">Resume</button>
+        <button id="mute" type="button">Sound (M)</button>
+        <button id="bank" type="button" disabled>Finish &amp; keep score</button>
+        <button id="again" type="button">Start again</button>
+      </nav>
+    </div>
+  </section>
   <div id="end" role="dialog" aria-labelledby="end-title" hidden>
     <div class="end-info">
       <span id="end-title" class="end-title">Run over</span>
@@ -67,10 +70,10 @@
       <button id="end-close" class="end-close" type="button" aria-label="Dismiss" title="Dismiss (Esc)">×</button>
     </div>
   </div>
-  <script src="art.js?v=41"></script>
-  <script src="renderer.js?v=41"></script>
-  <script src="audio.js?v=41"></script>
-  <script src="opening.js?v=1"></script>
-  <script src="game.js?v=42"></script>
+  <script src="art.js?v=44"></script>
+  <script src="renderer.js?v=44"></script>
+  <script src="audio.js?v=44"></script>
+  <script src="opening.js?v=2"></script>
+  <script src="game.js?v=44"></script>
 </body>
 </html>

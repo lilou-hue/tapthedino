@@ -3,7 +3,105 @@
 Standalone browser game at **https://tapthedino.com/**, hosted on GitHub Pages.
 Space, up arrow, or tap to jump. Keep jumping: the world has other plans.
 
-## Development
+## Controls and session
+
+- **Space / Up / tap:** jump. During EXTREME, make fresh presses/taps to climb;
+  holding a key is not repeated input.
+- **Esc** or the single small **Pause** button: pause/resume. The pause dialog
+  contains Resume, Sound, Finish & keep score, and Start again. The old playing
+  button cluster is absent from rendering, hit testing and tab order.
+- **M:** toggle sound, including while paused. Sound preference is browser-local.
+- Window blur/visibility pauses the simulation and audio. Returning to the window
+  never clears an explicit user pause. Resuming does not jump or bank a score.
+- Finish is an explicit action, disabled before the first reveal or in an assisted
+  run. The standalone end card shows score/best, Play again and Share
+  (`https://tapthedino.com/`). Play again returns to the initial idle page.
+
+The small pause affordance appears only after play is revealed; Esc also works
+before that. This keeps the original first page uncluttered without hiding the
+controls in a permanently visible menu. Later Chrome runs show compact session
+score, hearts and lap-speed feedback; the fold and quiet idle breath hide it.
+Scores and mute use `a1NoInternetBest` and `a1NoInternetMuted` in local storage.
+There are no coins, quests, shared arcade callbacks, automatic banking or network
+score submissions.
+
+## Chrome opening — every lap
+
+Before play, the page is the Chromium offline error page and its own runner
+(`opening.js`): idle blinks, first jump, the 0.4 s widening intro, obstacle-free
+start, cacti, distance meter, clouds, night mode in dark theme and original
+press/hit/reached samples. The runner is stepped at a fixed 60 Hz from `game.js`,
+using Chromium's 1x/2x sprites at its own integer pixel ratio. It cannot start
+before its sprite sheet loads: until then the static idle crop remains and input
+is ignored. Failed sheets are retried, then the other density is used.
+
+**Lap one retains free in-place attempts.** Three cleared cacti (credited on
+landing), or the 12.5 s collision-free deadline, start the transformation. A
+collision ends only that attempt: no heart loss, no score write, no deadline
+advance. Retry with Space/Up after 1.2 s, Enter, or tapping the runner. Retry
+discards that attempt's clears and score; hearts are full at the reveal. The
+runner's HI distance is visual and memory-only, not the game's best score.
+
+The same hero and runway hand off to the main renderer at identical screen
+geometry (`flatAnchor`). The line tears out past the runner box, ripples, and the
+page dissolves as extrusion folds it into the world. The page sprite retains its
+60 Hz jump physics and Chrome sounds until the morph begins. The first HUD
+appears only once the camera is underway.
+
+**Every successful lap folds back to this same page, not a second imitation.**
+The returning hero and horizon project into the actual runner rectangle before
+the canvas-to-DOM swap. The existing page is laid out before its anchor is read;
+light/dark theme, resize and native DPR remain shared. A quiet original idle look
+lasts 1.15 s, then the runner starts itself. First load still waits for input.
+Score and session identity survive; the lap increments and heals one heart
+(maximum three) exactly once. Later openings require two clears or the same
+collision-free deadline. Later Chrome contacts cost one heart with 0.8 s recovery,
+resume in place without clearing session points, and show the game's own end card
+at zero hearts. Only lap one has free attempt resets.
+
+Duck/pterodactyl gameplay is not implemented. First-lap speeds are unchanged;
+later Chrome speeds accelerate but are hard-capped at 8.3, below the unsupported
+bird's 8.5 threshold. Differences from Chrome: immediate resize rather than a
+resize pause; fixed 60 Hz stepping rather than a variable frame time; HI distance
+is not persisted. Browser versions, fonts and locale can differ; the reference
+is the English offline page in Chrome 157 on Linux.
+
+## The world and EXTREME
+
+The pixel/vector/ink/gouache/desktop/cel journey retains the source's original
+136 BPM score, medium-specific build, earned landing response and bounded world
+waves. The painted scene has **one hero**, not flashing bonus dinosaur clones.
+Its original textured assets and atlas anchors are unchanged. Cleared cacti stay
+full-height and continue behind the hero to the near/offscreen boundary (`z > -8`);
+a bounded render-only tail survives stage transitions without old collisions or
+second scoring. Small geometry fixes join cactus arms, ground the trunk and pixel
+feet, keep squash details attached, and separate the vector jaw from the head.
+
+World speed increases by 14 percentage points per lap, capped at **1.70×**:
+8, 9.12, 10.24, …, 13.6 world units/s. Approach time also decreases from 2.4 s to
+`max(1.45, 2.4 / speedMultiplier)`; merely spawning farther away would not make
+approaches faster. Ordinary jump airtime stays about 0.86 s. Phrase spacing stays
+above 1.4 s; stampede keeps its six fair hazards and fixed musical timing.
+
+After coalescence, **EXTREME** replaces the old gentle finale:
+
+- 1.5 s ready cue, then a fixed 6 s climb toward a 24-unit cactus.
+- At least ten fresh presses **and** reaching height 24 are required at contact.
+  Steady moderate tapping (about 2.5 Hz) works; a late burst cannot teleport upward.
+- A miss is fatal at contact, regardless of hearts or recovery. Success awards
+  exactly 150 points once, followed by 1.4 s payoff and 2.2 s visual/audio rewind.
+- EXTREME's timing, height and difficulty are identical on every lap. It does not
+  inherit the world-speed increase.
+- Comic boost puffs, the cactus face and rewind use bounded geometry/effect pools
+  and a maximum 240-frame scalar presentation tape, not replayed gameplay.
+
+Farts occur **only during EXTREME**; ordinary world jumps beep. Chrome phases use
+only Chromium press/hit/reached samples, with no extra jump beep or clear chime.
+Optional locally hosted speech has caption fallback. Mute, pause and restart
+cancel queued cues and stop tracked voices, including Chrome buffer sources;
+resuming resynchronizes the score rather than replaying entry stingers.
+
+## Development and inspection
 
 No build step or runtime dependencies. Serve this directory with a static server:
 
@@ -12,65 +110,48 @@ python3 -m http.server 8000
 ```
 
 Open http://localhost:8000/. Do not open index.html as a file: artwork uses fetch.
+There is no service worker or offline cache to install or invalidate.
+
+Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 5 includes
+`speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
+EXTREME state, and opening/handoff geometry. `?debug` additionally exposes
+`advance(seconds)` and `freeze(true)` for stepped captures; `?debug&seed=N` makes
+the runner's randomness reproducible. Seed/stepping/freezing mark the run and all
+later restarts in the same page assisted: no best writes, banking or end card.
+There is no stage-skip or asset-readiness bypass.
+
+Browser verification is performed externally, without adding dependencies or
+shipping test controls. Headless timings are not physical-phone performance
+claims. Check both themes, touch DPR2 and desktop, first-attempt crash/retry,
+three successful lap returns, later Chrome damage, cactus pass-through, painted
+big clears, the 40-dino pack, and pause/mute/missing-asset fallbacks when syncing.
+
+## Source, provenance and maintenance
+
+Originally extracted from `lilou-hue/SlayPlay`, commit
+`016a817fde086307653806fbb1f5123617100184`, directory `arcade/no-internet/`.
+The latest manually ported source is **`a72728b`**, including EXTREME from
+`8e1e9be`, its normal-jump audio correction, musical intensity, world responses
+and renderer performance work. This is a semantic port over the standalone
+Chrome-opening implementation, not a wholesale replacement of that opening.
+
+Changes to SlayPlay do **not** deploy here automatically. Sync by hand: compare
+against the shared content base, retain the standalone end card/storage/share
+paths and native opening, then validate session and geometry behavior. Never
+import the shared `arcade.js`/`arcade.css`, back navigation, coins, quests, badges,
+store, challenge banners, external runtime calls or a service worker.
+
+The painted pack remains byte-identical to the source pack. The two EXTREME
+speech WAVs and `assets/audio/extreme/provenance.json` are exact source copies;
+see that provenance file for generation, public-domain dataset and processing
+information. They are original synthetic dialogue, not copied game-announcer
+recordings. Chromium layout/artwork/sound attribution and speech provenance are
+in `THIRD_PARTY_NOTICES.md`.
 
 ## Deployment
 
-GitHub Pages publishes the root of `main` after a push. Keep `CNAME` set to
-`tapthedino.com` and `.nojekyll` present. DNS is managed in Porkbun.
-Never add API keys or `.env` files to this public repository.
-
-## Source and maintenance
-
-Extracted from `lilou-hue/SlayPlay`, commit
-`016a817fde086307653806fbb1f5123617100184`, directory `arcade/no-internet/`.
-This is now a standalone game: it no longer loads SlayPlay's shared `arcade.js`
-or `arcade.css`, and has no SlayPlay navigation, back link, popups, coins, quests,
-badges, achievements, store or challenge banner. Its own small end card shows the
-score and best, with Play again and Share (`https://tapthedino.com/`). Scores and
-mute use the original browser-local keys (`a1NoInternetBest`,
-`a1NoInternetMuted`) on this origin. Keyboard `M` toggles sound; the controls
-appear once the world is revealed (or when focused with Tab).
-
-Changes to SlayPlay do **not** deploy here automatically. The later scenes keep the
-internal SlayPlay gameplay; port changes by hand and keep the standalone paths/URLs.
-
-## First phase and reveal
-
-Before play, and through the first offline phase of lap one, the page is the
-Chromium offline error page and its own runner (`opening.js`): idle blinks, the
-first jump, the 0.4 s widening intro, the obstacle-free start, cacti, distance
-meter, clouds, night mode in dark theme, sounds, and GAME OVER with in-place retry
-(Space/Up after 1.2 s, Enter, or tapping the runner). It is a small local
-reimplementation stepped at a fixed 60 Hz from `game.js`, drawn with Chromium's
-1x/2x sprites at the runner canvas's own integer pixel ratio. Like Chrome, it cannot
-start before its sprite sheet has loaded: until then the static idle crop is shown
-and input is ignored; a failed sheet is retried, then the other density is used. Ducking and
-pterodactyls are not implemented (pterodactyls cannot appear at these speeds).
-
-Game rules for this phase: three cacti cleared (credited on landing) start the
-transformation; the 12.5 s collision-free deadline is unchanged. A collision ends
-only that attempt: no heart is lost, time stops, nothing is written, and retry
-discards the attempt's clears and their score. Hearts are full at the reveal. The
-distance meter and its HI value are visual only and kept in memory.
-
-At the third clear the same hero and runway are handed to the main renderer at
-identical screen geometry (`flatAnchor`): the line tears out past the runner box,
-ripples, the page text and runner remnants dissolve, and the extrusion folds the
-page into the 3D world. Until the morph begins, jumps keep the page runner's physics
-and sound. The HUD, hearts, chapter and controls appear only once the
-camera is underway. Restart returns to the idle page. Later laps are unchanged.
-
-`?debug` exposes `DINO_DEBUG.advance(seconds)` and `DINO_DEBUG.freeze(true)` (stepped
-captures); `?debug&seed=N` makes the runner's randomness reproducible. Using any of
-these marks the run (and later runs in that page) debug-assisted: no score writes,
-no banking, no end card. `DINO_DEBUG.state.opening` and
-`.handoff` report runner, geometry and hero metrics.
-
-Differences from Chrome: the runner is resized immediately on window resize instead
-of Chrome's pause; the fixed 60 Hz step differs from Chrome's variable frame time
-by about a frame (apex and intro offset can differ by a few pixels); the HI score
-is not persisted. Browser versions, fonts and locale may differ; the reference is
-the English offline page in Chrome 157 on Linux.
-
-The Chrome-derived artwork, sounds and layout attribution is in
-`THIRD_PARTY_NOTICES.md`.
+GitHub Pages publishes the repository root from `main` after a push. Preserve
+`CNAME` (`tapthedino.com`), `.nojekyll`, the favicon, robots/sitemap, paint and
+Chrome assets, and licenses. DNS is managed in Porkbun. There is no automatic
+sync/deployment code in this game. Never add API keys or `.env` files to the
+public repository.

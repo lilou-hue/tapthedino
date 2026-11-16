@@ -41,7 +41,7 @@
     async load() {
       const timeout=setTimeout(()=>{if(this.status==='loading'){this.status='fallback';this.fallbackReason='painted assets delayed';}},10000);
       try {
-        const manifestURL=new URL('assets/painted/manifest.json?v=40',location.href);
+        const manifestURL=new URL('assets/painted/manifest.json?v=44',location.href);
         const response=await fetch(manifestURL);
         if(!response.ok)throw new Error('manifest HTTP '+response.status);
         const manifest=await response.json();
@@ -51,7 +51,7 @@
           if(typeof file!=='string'||!/^[-\w.]+\.webp$/.test(file)){reject(new Error('invalid image path'));return;}
           const image=new Image();image.onload=()=>{if(!image.naturalWidth)reject(new Error('empty '+file));else {this.loaded++;resolve(image);}};
           image.onerror=()=>reject(new Error('image unavailable: '+file));
-          const imageURL=new URL(file,manifestURL);imageURL.search='?v=40';image.src=imageURL.href;
+          const imageURL=new URL(file,manifestURL);imageURL.search='?v=44';image.src=imageURL.href;
         });
         const entries=Object.entries(manifest.atlases);
         const loaded=await Promise.all([...entries.map(async([key,atlas])=>{
@@ -76,13 +76,12 @@
     }
     snapshot(out={}) {out.status=this.status;out.imageCount=this.loaded;out.fallbackReason=this.fallbackReason;return out;}
     medium(s) {
-      // Lap one starts as the page's own runner; its sprites stay until the extrusion.
-      if(s.lap===1&&(s.scene==='offline'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)))return 'chrome';
-      if(s.scene==='offline'||s.scene==='breath'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)||(s.scene==='collapse'&&s.projectionBlend<.4))return 'pixel-8';
+      // Every lap starts/ends with the page's own runner; extrusion carries its sprites.
+      if(s.scene==='offline'||s.scene==='breath'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)||(s.scene==='collapse'&&s.projectionBlend<.4))return 'chrome';
       if(s.scene==='desktop'||s.scene==='crash')return 'pixel-16';
       if(s.scene==='corkscrew')return 'ink-comic';
       if(s.scene==='dream')return this.status==='ready'?'ai-gouache':'gouache-fallback';
-      if(['stampede','coalesce','finale','collapse'].includes(s.scene))return 'cel-cartoon';
+      if(['stampede','coalesce','extreme','finale','collapse'].includes(s.scene))return 'cel-cartoon';
       return 'vector-3d';
     }
   }
