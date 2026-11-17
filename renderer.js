@@ -3,6 +3,7 @@
   'use strict';
   const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
   const mix = (a, b, t) => a + (b - a) * t;
+  const mixRGB = (a, b, t) => a.map((n, i) => mix(n, b[i], t));
   const smooth = n => (n = clamp(n), n * n * (3 - 2 * n));
   const sub = (a, b) => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
   const dot = (a, b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
@@ -11,43 +12,52 @@
   const CUBE = [[-.5,-.5,-.5],[.5,-.5,-.5],[.5,.5,-.5],[-.5,.5,-.5],[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]];
   const FACES = [[0,3,2,1],[4,5,6,7],[0,4,7,3],[1,2,6,5],[3,7,6,2],[0,1,5,4]];
   const SHADE = [.60,.86,.75,.94,1.12,.45];
-  const GRAY = [83,83,83], CHROME = [174,218,233], GREEN = [193,255,105];
-
-  // The existing four size/LOD tiers, not screen-space geometry. Preserve even
-  // the tiny floating-point pole rings; perspective and bend are applied afresh.
-  const SOLIDS=new Map();
-  for(const [n,rows] of [[12,6],[6,3],[4,3],[8,4]]) {
-    const vertices=[],facets=[];
-    for(let j=0;j<=rows;j++)for(let i=0;i<n;i++) {
-      const a=Math.PI*j/rows,b=i*Math.PI*2/n;
-      vertices.push([Math.sin(a)*Math.cos(b),Math.cos(a),Math.sin(a)*Math.sin(b)]);
-    }
-    for(let j=0;j<rows;j++)for(let i=0;i<n;i++)facets.push([j*n+i,j*n+(i+1)%n,(j+1)*n+(i+1)%n,(j+1)*n+i]);
-    SOLIDS.set(n+':'+rows,{vertices,facets});
-  }
+  const GRAY = [83,83,83], CHROME = [174,218,233], LIME = [193,255,105];
+  const PX = 47 / 2.2;
+  // The sculpted hero: ONE hand-authored side profile in Chromium runner pixels
+  // (44 wide, ground row 41), so the flat page sprite and the volume share a
+  // silhouette. Each point carries a half-width: tapered tail, deep haunch, snout.
+  const toHero = ([x, y, w]) => [(x - 22) / PX, (41 - y) / PX, w];
+  const HERO = [[.5,15.5,.04],[8,21,.17],[15,18.5,.4],[21,12,.36],[22.5,3,.33],[37,.5,.3],[43.5,3,.25],[43.5,8.5,.22],
+    [35,10,.25],[39,13,.2],[30,15.5,.28],[27,20,.32],[28.5,26,.4],[25,31,.44],[16,32.5,.44],[8,26,.2]].map(toHero);
+  const HAUNCH = [[11,24],[17,20.5],[23,22],[25.2,28],[21,32.4],[13.5,31]].map(p => toHero([...p,0]));
+  const ARM = [[25.5,18.6],[30,19.4],[33.6,21.6],[34.8,24.6],[32.6,24.8],[30.2,22.8],[25.5,23]].map(p => toHero([...p,0]));
+  const SPIKES = [[[20.2,13.3],[17.6,7.4],[16.9,16.8]],[[15.6,18.3],[13,11.8],[11.7,19.6]],[[10.4,20.4],[8,15],[7,20.6]]]
+    .map(t => t.map(p => toHero([...p,0])));
+  const LEG = [[-3.2,-2],[3,-2],[2,8.5],[5.8,9.6],[5.8,12],[-2.4,12],[-2.6,8]];
+  // The sculpted hazard: trunk, both arms and root as one joined silhouette
+  // (screen-right u, up v, half-depth), not separate boxes.
+  const CACTUS = [[-.3,0,.2],[-.2,.14,.2],[-.2,.46,.2],[-.46,.46,.14],[-.56,.56,.14],[-.56,.98,.14],[-.48,1.06,.12],[-.4,.98,.12],
+    [-.4,.66,.13],[-.2,.66,.2],[-.2,1.28,.2],[-.1,1.4,.16],[.1,1.4,.16],[.2,1.28,.2],[.2,.8,.2],[.38,.8,.13],[.38,1.1,.12],
+    [.46,1.18,.12],[.54,1.1,.12],[.54,.72,.14],[.44,.6,.14],[.2,.6,.2],[.2,.14,.2],[.3,0,.2]];
+  // Three controlled values from one upper-left key: tops catch it, the side
+  // reads as the middle value, undersides and away-facing planes fall dark.
+  const heroTone = (u, v) => v > .45 ? 2 : v < -.35 ? 0 : u < 0 ? 1 : 0;
+  const cactusTone = (u, v) => v > .45 ? 2 : v < -.35 ? 0 : u < 0 ? 2 : 0;
+  // Painted valley: asymmetric groups with quiet gaps, looping every 84 units.
+  // Decorative cacti stay far from the hazard corridor.
+  const VALLEY = [[3,-7.6,'boulder',1.9],[6,-10,'mushroom',3.7],[19,8,'arch',3.2],[21.5,10.8,'mushroom',4.4],[23.5,8.6,'boulder',1.5],
+    [38,-8.8,'arch',3],[44,-21,'mushroom',9.5],[51,9.4,'boulder',2.3],[54,13,'mushroom',5],[62,-15.5,'cactus',3.1],[66,-12.2,'mushroom',4.6],[76,24,'mushroom',10]];
+  const VALLEY_LOOP = 84;
   // Only scenery primitives are remembered; no key enumeration or gameplay copy.
   const SCENERY_FIELDS=['mode','scene','previousScene','sceneTime','simTime','beat','speed','distance',
     'score','combo','multiplier','success','target','health','maxHealth','recovery','lap','variant',
-    'lapEarned','lapScore','banked','impact','burst','waveTime','earned','fallback','projectionBlend',
-    'extrusion','pending','nextSpawn','serial','sceneDistance','worldRoll','rollFrom','rollTarget',
-    'rollTime','morph','morphTarget','lastJumpTime','finalInput','finalJumpTime','finalJumpSerial',
-    'dropAt','cascadeCount','echoes','completion','reported','debugAssisted','reducedMotion','run','previousBest'];
+    'lapEarned','lapScore','banked','impact','burst','earned','fallback','projectionBlend',
+    'extrusion','pending','nextSpawn','serial','sceneDistance','morph','morphTarget','lastJumpTime','finalInput',
+    'completion','reported','debugAssisted','reducedMotion','run','previousBest'];
 
   class DinoRenderer {
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d', { alpha: false });
-      this.faces = [];this.cost=0;this.sceneryLimit=2000;
-      this.art=new DinoArt();this.medium='pixel-8';
-      this.pixelCanvas=document.createElement('canvas');this.pixelContext=this.pixelCanvas.getContext('2d',{alpha:false});
-      this.patterns={};
-      // One reusable outgoing world target, plus the shared nearest-pixel raster.
+      this.faces = [];this.sink=null;this.cost=0;this.sceneryLimit=2000;
+      this.art=new DinoArt();this.medium='chrome';
+      // One reusable outgoing world target for cross-medium handoffs.
       this.blendCanvas=document.createElement('canvas');
       this.blendContext=this.blendCanvas.getContext('2d',{alpha:false});
       this.lastScenery={};this.handoff=null;this.lastRun=null;
-      this.visual={bend:0,lift:0};
-      this.stats = { polygons: 0, renderMs: 0, maxPolygons: 0, assets:{}, budgets:{scenery:2000,gameplay:2600,used:0,reservedGameplay:600,packCap:40}, transition:{} };
-      this.solidView=Array.from({length:84},()=>[0,0,0]);
+      this.visual={bend:0};this.hudTop=12;this.hudSize=36;this.hudRight=12;this.neonFrom=null;this.foldFrom=null;this.neonFoot=null;
+      this.stats = { polygons: 0, renderMs: 0, maxPolygons: 0, assets:{}, budgets:{scenery:2000,gameplay:2600,used:0,reservedGameplay:600,packCap:0}, transition:{} };
       this.skyCanvas=null;this.skyImage=null;
       // Opening handoff: Chromium sprite sheets (plain and dark-inverted), page theme and
       // an optional integer backing ratio matching the runner canvas while it is drawn here.
@@ -77,7 +87,7 @@
       // Warm the static sky off the critical frame (idle time), never mid-handoff.
       if(this.skyPending)return;this.skyPending=true;
       const run=()=>{this.skyPending=false;if(this.art.status==='ready'&&!this.native)this.prepareSky();};
-      if(window.requestIdleCallback)requestIdleCallback(run,{timeout:1500});else setTimeout(run,200);
+      if(window.requestIdleCallback)requestIdleCallback(run,{timeout:500});else setTimeout(run,200);
     }
     resize() {
       this.w = innerWidth; this.h = innerHeight;
@@ -85,23 +95,32 @@
       this.canvas.width = Math.max(1,Math.floor(this.w * this.dpr));
       this.canvas.height = Math.max(1,Math.floor(this.h * this.dpr));
       this.ctx.setTransform(this.canvas.width/this.w, 0, 0, this.canvas.height/this.h, 0, 0);
-      // Auxiliary targets: live blend <=4M + exact static sky <=4M + pixel raster
-      // <=~231K pixels (aggregate <=~8.231M / 32.924MB RGBA, excluding the main).
-      // Matching backing dimensions avoids reallocating the pixel raster between passes.
+      // Auxiliary targets: live blend <=4M + exact static sky <=4M pixels
+      // (aggregate <=8M / 32MB RGBA, excluding the main canvas).
       this.blendCanvas.width=this.canvas.width;this.blendCanvas.height=this.canvas.height;
       this.blendContext.setTransform(this.blendCanvas.width/this.w,0,0,this.blendCanvas.height/this.h,0,0);
       if(this.skyCanvas){this.skyCanvas.width=0;this.skyCanvas.height=0;}
       this.skyImage=null;
+    }
+    horizonY(pose) {
+      // Where the painted camera's ground plane meets infinity (no bend at the horizon).
+      const eye=[Math.sin(pose[0])*pose[1],pose[2],pose[4]-Math.cos(pose[0])*pose[1]];
+      const forward=norm(sub([0,pose[3],pose[4]],eye)),right=norm(cross(forward,[0,1,0])),up=cross(right,forward);
+      return this.h*pose[5]-up[2]/Math.max(.05,forward[2])*Math.min(this.w*1.2,this.h*.94);
     }
     prepareSky() {
       const image=this.art.images.valley;
       if(this.skyImage!==image) {
         if(!this.skyCanvas)this.skyCanvas=document.createElement('canvas');
         const sky=this.skyCanvas;sky.width=this.canvas.width;sky.height=this.canvas.height;
-        const context=sky.getContext('2d'),w=this.w,h=this.h,k=Math.max(w/image.width,h/image.height);
+        const context=sky.getContext('2d'),w=this.w,h=this.h;
+        // Aspect-aware crop: the painting's own horizon (row 312 of 720) sits on the
+        // camera horizon, so narrow screens reveal its distant valley, not more ground.
+        const horizon=clamp(this.horizonY(this.pose('dream')),h*.08,h*.6);
+        const k=Math.max(w/image.width,horizon/312,(h-horizon)/(image.height-312));
         context.setTransform(sky.width/w,0,0,sky.height/h,0,0);
         context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
-        context.drawImage(image,(w-image.width*k)/2,(h-image.height*k)/2,image.width*k,image.height*k);
+        context.drawImage(image,(w-image.width*k)/2,horizon-312*k,image.width*k,image.height*k);
         this.skyImage=image;
       }
     }
@@ -111,11 +130,10 @@
       c.save();c.setTransform(1,0,0,1,0,0);c.drawImage(this.skyCanvas,0,0);c.restore();
     }
     pose(scene) {
-      const base=[-.36,this.w<600?15:13,5.2,.9,6,.43];
-      return ({corkscrew:[-.08,18,2.8,0,7,.46],dream:[-.42,21,18,0,7,.45],
-        desktop:[-.12,18,8,.4,8,.46],crash:[-.12,18,8,.4,8,.46],
-        stampede:[-.14,24,10,1,11,.47],coalesce:[-.12,24,8,3,14,.47],
-        finale:[-.30,15,5.5,1,6,.45]})[scene]||base;
+      // [azimuth, distance, eye height, target height, target z, screen y of target, screen x of feet]
+      // Tall-enough screens frame a little lower, trimming the empty foreground.
+      const narrow=this.w<600,low=this.h>=500?.04:0;
+      return ({dream:[narrow?-.42:-.48,narrow?15.5:16.5,6.4,1,6,.43+(narrow?low:0),.4],collapse:[-.30,15,5.5,1,6,.45,.5]})[scene]||[narrow?-.56:-.5,narrow?13.5:12,4.8,.9,5.5,.43+low,narrow?.34:.3];
     }
     camera(s) {
       this.s=s;this.hero=false;
@@ -125,7 +143,7 @@
       const b=s.projectionBlend, blend=smooth(s.sceneTime/1.2);
       const from=this.pose(s.previousScene), to=this.pose(s.scene);
       const pose=to.map((v,i)=>mix(from[i],v,blend));
-      if(s.scene==='collapse')pose.splice(0,6,...this.pose('finale'));
+      if(s.scene==='collapse')pose.splice(0,6,...this.pose('collapse'));
       if(s.reducedMotion) {
         const stable=this.pose('track');
         for(let i=0;i<pose.length;i++)pose[i]=mix(stable[i],pose[i],.4);
@@ -137,27 +155,41 @@
       // Lap one's flat view is anchored to the live Chromium runner (hero centre, ground row).
       const a=s.flatAnchor;this.anchor=a;
       const scale=mix(a?a.scale:this.w<600?23:28,Math.min(this.w*1.2,this.h*.94)/24,b);
-      const roll=s.reducedMotion?Math.sin(s.worldRoll)*.18:s.worldRoll;
-      this.rollCos=Math.cos(roll);this.rollSin=Math.sin(roll);
       const fold=smooth(s.sceneTime/2.0);
       this.collapseScale=1-fold;
       const foldAngle=s.reducedMotion?0:fold*2.1;
       this.foldCos=Math.cos(foldAngle);this.foldSin=Math.sin(foldAngle);
       this.cam={eye,forward,right,up,b,focal:scale*24,
         cx:mix(a?a.cx:this.w*(this.w<600?.19:.22),this.w*.5,b),cy:mix(a?a.cy:this.h*.70,this.h*pose[5],b)};
+      // Frame the hero's feet at an authored screen x, blended in with the projection.
+      this.cam.cx+=(this.w*pose[6]-this.footScreen()[0])*b;
+      // The fold starts where the neon hero's feet were, at its size, then hands the
+      // camera back to its own framing well before the Chromium pixel anchor.
+      if(s.scene==='collapse' && this.foldFrom) {
+        const k=smooth(s.sceneTime/1.1);
+        if(k<1) {
+          const natural=this.footScreen(),zoom=mix(clamp(this.foldFrom.height/(1.92*natural[2]),.6,2.5),1,k);
+          this.cam.focal*=zoom;
+          const moved=this.footScreen();
+          this.cam.cx+=mix(this.foldFrom.x,natural[0],k)-moved[0];
+          this.cam.cy+=mix(this.foldFrom.y,natural[1],k)-moved[1];
+        }
+      }
+    }
+    footScreen() {
+      // The hero's feet are gameplay geometry: never folded, rolled or bent.
+      const c=this.cam,d=sub([0,0,0],c.eye),z=dot(d,c.forward),k=c.focal/mix(24,Math.max(.35,z),c.b);
+      return [c.cx+dot(d,c.right)*k,c.cy-dot(d,c.up)*k,k];
     }
     transform(p) {
       const s=this.s;let [x,y,z]=p;
       x+=Math.sin(z*.085)*this.visual.bend*smooth(Math.max(0,z)/12);
-      y+=this.visual.lift;
-      if(s.scene==='crash') {y-=s.sceneTime*s.sceneTime*7;x+=Math.sin(z)*s.sceneTime;}
       if(s.scene==='collapse' && !this.gameplay && this.medium!=='chrome') {
         const k=this.collapseScale,co=this.foldCos,si=this.foldSin;
         const xx=x*co-y*si;
         y=(x*si+y*co)*k;x=xx*k;z*=k;
       }
-      const co=this.rollCos,si=this.rollSin;
-      return [x*co-y*si,x*si+y*co,z];
+      return [x,y,z];
     }
     view(p) {
       if(this.s.scene==='extreme')return [p[2],p[1],50+p[0]];
@@ -168,9 +200,9 @@
       const c = this.cam, k = c.focal / mix(24, Math.max(.35, p[2]), c.b);
       return [c.cx + p[0] * k, c.cy - p[1] * k];
     }
-    polygon(vertices, color, shade = 1, edge = null, viewed = false) {
+    polygon(vertices, color, shade = 1, edge = null, viewed = false, cull = false) {
       // Leave 600 of the 2600 commands for the hero, nearest hazards, shadow and marker.
-      if (this.cost >= (this.gameplay?2600:this.sceneryLimit)) return;
+      if (this.cost >= (this.gameplay?2600:this.sceneryLimit)) return null;
       let v = viewed ? vertices : vertices.map(p => this.view(p));
       // Clip in camera space before division; geometry can safely pass behind the viewer.
       const clipped = [];
@@ -183,17 +215,22 @@
         }
       }
       v = clipped;
-      if (v.length < 3) return;
+      if (v.length < 3) return null;
       const points = v.map(p => this.project(p));
-      if (points.every(p => p[0] < -2) || points.every(p => p[0] > this.w + 2) || points.every(p => p[1] < -2) || points.every(p => p[1] > this.h + 2)) return;
+      if (points.every(p => p[0] < -2) || points.every(p => p[0] > this.w + 2) || points.every(p => p[1] < -2) || points.every(p => p[1] > this.h + 2)) return null;
+      if (cull) {
+        // Authored outlines are clockwise from outside: one screen winding test culls.
+        let area = 0;
+        for (let i = 0; i < points.length; i++) { const a = points[i], b = points[(i + 1) % points.length]; area += a[0] * b[1] - b[0] * a[1]; }
+        if (area <= 0) return null;
+      }
       const depth = v.reduce((n, p) => n + p[2], 0) / v.length;
       const fog = this.cam.b * clamp((depth - 28) / 100) * .6;
-      if(this.medium==='ink-comic') {color=shade<.7?[33,28,33]:color[0]>color[1]*1.18?[214,54,52]:[248,231,196];shade=1;}
-      else if(this.medium==='cel-cartoon')shade=shade<.8?.8:1.05;
-      else if(this.medium==='pixel-16')shade=Math.round(shade*4)/4;
       const rgb = color.map((n, i) => Math.round(mix(clamp(n * shade, 0, 255), this.background[i], fog)));
       this.cost++;
-      this.faces.push({ points, depth, layer: this.layer, color: `rgb(${rgb.join(',')})`, edge, opacity:this.opacity??1, material:color.join(','), order: this.faces.length });
+      const face={ points, depth, layer: this.layer, color: `rgb(${rgb.join(',')})`, edge, width:this.edgeWidth, opacity:this.opacity??1, order: this.faces.length };
+      (this.sink||this.faces).push(face);
+      return face;
     }
     box(x, y, z, sx, sy, sz, color, angle = 0) {
       if(this.cost>=(this.gameplay?2600:this.sceneryLimit))return;
@@ -206,6 +243,31 @@
         if (dot(cross(sub(b,a), sub(c,a)), a) <= 0) continue;
         this.polygon(indices.map(i => verts[i]), color, SHADE[f],null,true);
       }
+    }
+    // A fixed authored outline extruded once: one side quad per edge, two caps, all
+    // culled by screen winding. Caps fill as a single path; no per-frame triangulation.
+    extrude(outline,at,tone,tones,edge=null) {
+      const near=[],far=[],sides=[],sink=this.sink;
+      for(const p of outline){near.push(this.view(at(p[0],p[1],-p[2])));far.push(this.view(at(p[0],p[1],p[2])));}
+      this.sink=sides;
+      for(let i=0;i<outline.length;i++) {
+        const j=(i+1)%outline.length,du=outline[j][0]-outline[i][0],dv=outline[j][1]-outline[i][1],len=Math.hypot(du,dv)||1;
+        this.polygon([near[i],far[i],far[j],near[j]],tones[tone(-dv/len,du/len)],1,null,true,true);
+      }
+      this.sink=sink;
+      sides.sort((a,b)=>b.depth-a.depth);
+      for(const face of sides)(sink||this.faces).push(face);
+      this.polygon(far.slice().reverse(),tones[1],1,null,true,true);
+      this.edgeWidth=edge?1:null;
+      this.polygon(near,tones[1],1,edge,true,true);
+      this.edgeWidth=null;
+    }
+    group(depth,build) {
+      // A hand-ordered part list keeps one depth against the world (no self-sorting fights).
+      const parts=[],sink=this.sink;this.sink=parts;
+      build();
+      this.sink=sink;
+      if(parts.length)(sink||this.faces).push({group:parts,depth,layer:this.layer,opacity:this.opacity??1,order:this.faces.length});
     }
     imageQuad(image,rect,vertices,anchor=null,billboard=false) {
       if(this.cost>=(this.gameplay?2600:this.sceneryLimit))return;
@@ -229,10 +291,11 @@
       const p=(u,v)=>[x+r[0]*(u-a[0])*width+up[0]*(a[1]-v)*height,y+up[1]*(a[1]-v)*height,z+r[2]*(u-a[0])*width+up[2]*(a[1]-v)*height];
       this.imageQuad(frame.image,frame.rect,[p(0,0),p(1,0),p(1,1),p(0,1)],[x,y,z],true);
     }
-    pixelSprite(name,x,y,z,width,height) {
-      const image=this.art.pixel[name];
-      // The two pixel feet end at row 30, not at the transparent row-32 canvas edge.
-      this.sprite({image,rect:[0,0,image.width,image.height],anchor:[.5,['runA','runB'].includes(name)?30/32:1]},x,y,z,width,height);
+    spriteRect(x,y,z,width,height,anchor=[.5,.92]) {
+      // Screen bounds of a camera-facing sprite (for projected-overlap fades).
+      const v=this.view([x,y,z]);if(v[2]<.35)return null;
+      const p=this.project(v),k=this.cam.focal/mix(24,v[2],this.cam.b);
+      return {left:p[0]-anchor[0]*width*k,right:p[0]+(1-anchor[0])*width*k,top:p[1]-anchor[1]*height*k,bottom:p[1]+(1-anchor[1])*height*k,depth:v[2]};
     }
     texture(c,f) {
       const [x,y,w,h]=f.rect,p=f.points,uv=[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
@@ -264,112 +327,94 @@
         c.drawImage(f.image,x-pad,y-pad,w+pad*2,h+pad*2,x-pad,y-pad,w+pad*2,h+pad*2);c.restore();
       }
     }
-    // Rounded, genuinely world-space solids. One depth command retains each solid's
-    // silhouette; its visible facets are shaded inside, not outlined like a wireframe.
-    organic(x,y,z,sx,sy,sz,color,lod=false,outline=true) {
-      if(this.cost+4>(this.gameplay?2600:this.sceneryLimit))return;
-      const ink=this.medium==='ink-comic';
-      const depth=this.view([x,y,z])[2],size=Math.max(sx,sy,sz)*this.cam.focal/mix(24,Math.max(.35,depth),this.cam.b);
-      // Three projected-size tiers. Big heads get a round contour, distant pack members stay cheap.
-      const n=size>100?12:lod?(size>20?6:4):size<18?6:8,rows=size>100?6:lod||size<18?3:4;
-      const topology=SOLIDS.get(n+':'+rows),viewed=this.solidView,all=[];
-      for(let i=0;i<topology.vertices.length;i++) {
-        const p=topology.vertices[i],v=this.view([x+p[0]*sx*.5,y+p[1]*sy*.5,z+p[2]*sz*.5]);
-        if(v[2]<.35)return;
-        viewed[i][0]=v[0];viewed[i][1]=v[1];viewed[i][2]=v[2];
-        all.push(this.project(v));
-      }
-      const facets=[],centerDepth=depth;
-      for(let f=0;f<topology.facets.length;f++) {
-        const indices=topology.facets[f],i=f%n,j=Math.floor(f/n);
-        const depth=(viewed[indices[0]][2]+viewed[indices[1]][2]+viewed[indices[2]][2]+viewed[indices[3]][2])/4;
-        if(depth>centerDepth+.015)continue;
-        const shade=ink?(i%3===0?.82:1):j===0?1.13:i<n/2?.83:1;
-        facets.push({points:indices.map(i=>all[i]),depth,color:'rgb('+color.map(v=>Math.round(clamp(v*shade,0,255))).join(',')+')'});
-      }
-      const points=all.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
-      const turn=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
-      const half=arr=>{const hull=[];for(const p of arr){while(hull.length>1&&turn(hull[hull.length-2],hull[hull.length-1],p)<=0)hull.pop();hull.push(p);}hull.pop();return hull;};
-      const hull=half(points).concat(half(points.slice().reverse()));
-      if(hull.length<3||hull.every(p=>p[0]<0)||hull.every(p=>p[0]>this.w)||hull.every(p=>p[1]<0)||hull.every(p=>p[1]>this.h))return;
-      if(this.cost+facets.length+1>(this.gameplay?2600:this.sceneryLimit))return;
-      this.cost+=facets.length+1;
-      this.faces.push({points:hull,facets:facets.sort((a,b)=>b.depth-a.depth),color:facets[0].color,depth:centerDepth,layer:this.layer,order:this.faces.length,organic:true,outline,opacity:this.opacity??1,material:color.join(',')});
-    }
     landingScale(s) {
       const t=1-clamp(s.impact/.32);
-      // Feet/atlas anchors stay fixed: a quick compression, then a smaller recovery.
-      return 1-Math.sin(t*Math.PI*2)*(1-t)*.24*(s.reducedMotion?.35:1);
+      // Feet/atlas anchors stay fixed: a small compression that keeps anatomy coherent.
+      return 1-Math.sin(t*Math.PI*2)*(1-t)*.09*(s.reducedMotion?.35:1);
     }
     clearWave(s,z) {
       let pulse=0;
       for(const effect of s.effects) {
         if(effect.puff)continue;
         const age=effect.age-Math.max(0,z)/70;
-        if(age>0 && age<.55)pulse=Math.max(pulse,Math.sin(age/.55*Math.PI)*(effect.big?1:.78));
+        if(age>0 && age<.55)pulse=Math.max(pulse,Math.sin(age/.55*Math.PI)*(effect.big?1:.6));
       }
       return pulse*(s.reducedMotion?.25:1);
     }
     build(s) {
-      const duration=({track:14,corkscrew:11,dream:12,desktop:11,stampede:16})[s.scene];
+      const duration=({track:14,dream:12})[s.scene];
       if(!duration || !s.success)return 0;
       const progress=Math.max(s.sceneTime/duration,s.success/Math.max(1,s.target));
       return smooth((progress-.55)/.45)*(s.reducedMotion?.25:1);
     }
-    drawnDino(s,o={}) {
-      if(this.cost>=(this.gameplay?2600:this.sceneryLimit))return;
-      const ink=this.medium==='ink-comic',k=o.scale||1,x=o.x||0,z=o.z||0,y=o.y??s.player.height;
-      const recoil=o.boost||0;
-      const squash=o.lod?1:this.landingScale(s)*(1+recoil*.23);
-      const color=this.hero&&s.recovery>0?[231,144,69]:(o.color||(ink?[245,231,200]:[65,200,142]));
-      const accent=ink?[210,57,55]:[255,149,61],dark=ink?[28,25,31]:[29,47,72];
-      const run=recoil?recoil*.65:(s.player.grounded?Math.sin(s.distance*3.8)*.16:.14);
-      let part=0;
-      const ball=(px,py,pz,sx,sy,sz,c=color)=>this.organic(x+px*k,y+py*k*squash,z+(pz-recoil*py*.12)*k,sx*k/squash,sy*k*squash,sz*k/squash,c,!!o.lod,![3,5].includes(part++));
-      if(o.lod) {
-        // Near pack members retain the hero's neck and articulated feet. At distance,
-        // merge hidden joints, not head/body proportions, leaving room for the city.
-        const near=z<8;
-        ball(0,.95,0,.95,1.2,1.18);
-        if(near)ball(0,1.55,.38,.68,.83,.64);
-        ball(0,1.9,ink?.67:.45,ink?.98:1.25,.85,ink?1.22:1.05);
-        ball(0,.78,-.95,.58,.53,1.55);
-        for(const side of [-1,1]) {
-          if(near)ball(side*.32,.3,side*run,.44,.6,.69,accent);
-          else this.polygon([[x+(side*.32-.22)*k,y+.05*k,z+side*run*k],[x+(side*.32+.22)*k,y+.05*k,z+side*run*k],[x+(side*.32+.17)*k,y+.58*k,z-.12*k],[x+(side*.32-.17)*k,y+.58*k,z-.12*k]],accent);
+    sculptedHero(s,o={}) {
+      if(this.cost+44>(this.gameplay?2600:this.sceneryLimit))return;
+      const fallback=this.medium==='gouache-fallback',e=smooth(s.extrusion),ext=mix(.035,1,e);
+      const base=this.hero&&s.recovery>0?[202,116,65]:fallback?[72,170,142]:(this.anchor?this.theme.ink:GRAY).map((n,i)=>mix(n,CHROME[i],s.extrusion));
+      const tones=[mixRGB(base,fallback?[34,62,78]:[22,28,64],.46*e),base,mixRGB(base,[255,255,255],.24*e)];
+      const edge=mixRGB(base,[12,16,40],.62*e).map(Math.round);
+      const accent=mixRGB(base,fallback?[244,190,76]:LIME,e);
+      const y0=o.y??s.player.height,scale=this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1;
+      const squash=this.landingScale(s),lean=s.player.stumble>0?-.1:0;
+      const at=(z,y,x)=>[x*ext*scale/squash,y0+y*scale*squash,(z+lean*y)*scale];
+      const grounded=s.player.grounded,phase=s.distance*1.7;
+      const leg=(side,p)=>{
+        // A planted foot sits exactly on the ground row; only the swinging foot lifts.
+        const hip=side<0?[15.5,29]:[22.5,29];
+        const stride=grounded?Math.sin(p)*3.2:side<0?2.4:-1.8,lift=grounded?Math.max(0,Math.cos(p))*3.4:2.4;
+        const outline=LEG.map(([x,y],i)=>toHero([hip[0]+x+(i>1?stride:0),hip[1]+y-(i>1?lift:0),.1]));
+        this.extrude(outline,(z,y,w)=>at(z,y,side*.25+w),heroTone,tones,side<0?edge:null);
+      };
+      const flat=(points,x,color,edgeColor=null)=>{this.edgeWidth=edgeColor?.8:null;this.polygon(points.map(p=>at(p[0],p[1],x)),color,1,edgeColor);this.edgeWidth=null;};
+      this.group(this.view(at(0,.9,0))[2],()=>{
+        leg(1,phase+Math.PI);
+        flat(ARM,.37,tones[0]);
+        this.extrude(HERO,at,heroTone,tones,edge);
+        flat(HAUNCH,-.47,tones[2]);
+        const grow=smooth((s.extrusion-.2)/.4);
+        if(grow>0)for(const [a,apex,b] of SPIKES) {
+          const tip=[mix((a[0]+b[0])/2,apex[0],grow),mix((a[1]+b[1])/2,apex[1],grow)];
+          // Three modest dorsal spines: a lit and a shaded plane rising from the ridge.
+          this.polygon([at(a[0],a[1],-.12),at(tip[0],tip[1],0),at(b[0],b[1],-.12)],mixRGB(accent,[255,255,255],.1),1,null,false,true);
+          this.polygon([at(b[0],b[1],.12),at(tip[0],tip[1],0),at(a[0],a[1],.12)],mixRGB(accent,[30,60,40],.35),1,null,false,true);
         }
-        this.polygon([[x-.12*k,y+1.48*k,z-.27*k],[x,y+1.88*k,z-.39*k],[x+.12*k,y+1.48*k,z-.57*k]],accent,1,dark);
-        return;
-      }
-      ball(0,.95,0,.95,1.2,1.18);ball(0,.73,-.73,.58,.53,1.1);ball(0,.95,-1.25,.27,.28,.7);
-      ball(0,1.55,.38,.68,.83,.64);ball(0,1.9,ink?.67:.45,ink?.98:1.25,.85,ink?1.22:1.05);
-      // The cel hero glances back at the player; its cheek and oversized eyes read from this camera.
-      ball(0,1.62,ink?.91:.04,ink?.87:1.05,.30,.64,ink?accent:[255,223,142]);
-      for(const side of [-1,1]) {
-        ball(side*.32,.35,-.13+side*run,.4,.63,.48);ball(side*.32,.12,.04+side*run,.44,.24,.69,accent);
-        if(!o.lod || k>1.5) {
-          ball(side*.46,1.13,.52,.24,.22,.56);
-          ball(side*(ink?.5:.34),2.06,ink?.77:.06,ink?.14:.38,.38,.23,[255,250,222]);
-          ball(side*(ink?.57:.34),2.07,ink?.85:-.07,ink?.07:.17,.21,.09,dark);
-          this.box(x+side*(ink?.55:.34)*k,y+2.28*k*squash,z+(ink?.77:.04)*k,(ink?.16:.42)*k,.07*k,.20*k,dark);
+        // A three-quarter eye: dark pupil and a single glint, white like the page sprite when flat.
+        const eye=e>.4?[16,22,40]:this.theme.page,ring=n=>Array.from({length:6},(_,i)=>{const a=i*Math.PI/3;return toHero([27.4+Math.cos(a)*n,4.6+Math.sin(a)*n,0]);});
+        flat(ring(1.7),-.345,eye);
+        if(e>.4)flat(ring(.55).map(p=>[p[0]+.03,p[1]+.03]),-.35,[236,255,214]);
+        leg(-1,phase);
+        flat(ARM,-.39,tones[1],edge);
+      });
+    }
+    sculptedCactus(z,scale,x,base,color,layered=true) {
+      if(this.cost+32>(this.gameplay?2600:this.sceneryLimit))return;
+      const tones=[mixRGB(color,[10,26,48],.5),color,mixRGB(color,[236,255,246],.38)];
+      const at=(u,v,d)=>[x-u*scale,base+v*scale,z+d*scale];
+      this.group(this.view(at(0,.7,0))[2],()=>{
+        this.extrude(CACTUS,at,cactusTone,tones,mixRGB(color,[6,14,30],.68).map(Math.round));
+        // Two facet planes on the trunk give it a lit ridge, not a block outline.
+        if(layered) {
+          this.polygon([at(-.17,.16,-.21),at(-.04,.19,-.21),at(-.04,1.32,-.17),at(-.17,1.26,-.17)],tones[2]);
+          this.polygon([at(.07,.19,-.21),at(.17,.16,-.21),at(.17,1.26,-.17),at(.07,1.32,-.17)],mixRGB(tones[1],tones[0],.45));
         }
-      }
-      for(let i=0;i<(o.lod?2:3);i++) {
-        const zz=-.27-i*.36;
-        this.polygon([[x-.12*k,y+(1.48-i*.14)*k*squash,z+zz*k],[x,y+(1.88-i*.16)*k*squash,z+(zz-.12)*k],[x+.12*k,y+(1.48-i*.14)*k*squash,z+(zz-.3)*k]],accent,1,dark);
-      }
+      });
     }
-    drawnCactus(z,scale=1,x=0,base=0) {
-      const ink=this.medium==='ink-comic',color=ink?[220,59,54]:[120,85,209];
-      const ball=(px,py,sx,sy)=>this.organic(x+px*scale,base+py*scale,z,sx*scale,sy*scale,.4*scale,color);
-      ball(0,.74,.56,1.48);ball(-.35,.57,.65,.26);ball(-.58,.88,.31,.82);ball(.35,.43,.6,.26);ball(.58,.7,.32,.72);
-      for(const side of [-1,1])this.box(x+side*.11*scale,base+.72*scale,z-.22*scale,.035*scale,.72*scale,.035,ink?[250,232,201]:[227,194,255]);
+    softShadow(x,z,rx,rz,color,alpha) {
+      // Three bounded 24-vertex world ellipses at low opacity: a faint penumbra
+      // that darkens towards a small contact core, never a flat blob.
+      if(alpha<=.01)return;
+      const layer=this.layer;this.layer=3;
+      for(const [r,a] of [[1,.28],[.68,.34],[.38,.5]]) {
+        this.opacity=alpha*a;
+        this.polygon(Array.from({length:24},(_,i)=>{const t=i*Math.PI/12;return [x+Math.cos(t)*rx*r,.02,z+Math.sin(t)*rz*r];}),color);
+      }
+      this.opacity=1;this.layer=layer;
     }
-    paintedWorld(s) {
+    paintedGround(s) {
       this.layer=0;
       const image=this.art.images.valley,rect=this.art.groundSample;
-      // Sampled real brushwork travels along the same bent world-space path.
-      for(let i=-5;i<27;i++) {
+      // Fine sampled brushwork only along the corridor, along the same bent world-space path.
+      for(let i=-4;i<27;i++) {
         const z=i*3-s.distance%3;
         // A continuous 48-unit brushwork sample, mirrored at its ends: no repeated strip seams.
         const worldIndex=i+Math.floor(s.distance/3);
@@ -385,15 +430,63 @@
           }
         }
       }
+      // Broad, cheap outer coverage past the frustum edges: one coarse quad per cell,
+      // so the valley floor never ends as a rectangular carpet.
+      for(let i=-1;i<10;i++) {
+        const z=i*12-s.distance%12,far=z+6>79;
+        const worldIndex=i+Math.floor(s.distance/12),flip=((worldIndex%2)+2)%2;
+        const cells=far?[[0,52.5],[-94.5,42],[94.5,42]]:[[-31.5,21],[31.5,21],[-94.5,42],[94.5,42]];
+        for(const [x,half] of cells) {
+          const za=flip?z+6.02:z-6.02,zb=flip?z-6.02:z+6.02;
+          this.imageQuad(image,rect,[[x-half,-.1,za],[x+half,-.1,za],[x+half,-.1,zb],[x-half,-.1,zb]]);
+        }
+      }
+    }
+    valleyProps(s) {
       this.layer=2;
-      for(let i=0;i<10;i++)for(const side of [-1,1]) {
-        const worldIndex=i+Math.floor(s.sceneDistance/8);
-        const z=5+i*8-s.sceneDistance%8,x=side*(7.2+(worldIndex%3)*2.1),size=(3.3+(worldIndex%4)*.8)*smooth((z-1)/8);
-        const names=['mushroom','cactus','boulder','arch'];
-        const breath=this.clearWave(s,z)*.17+this.build(s)*.018*Math.sin(s.beat*Math.PI-z*.09);
+      // Projected bounds of the hero and the next hazard: a near prop fades out before
+      // its painted silhouette can overlap either, not merely by world x.
+      const live=this.live,next=live.obstacles?.find(o=>!o.resolved&&o.z>-.4);
+      const keep=[this.spriteRect(0,live.player.height,0,2.6,3.1,[.66,.92]),next?this.spriteRect(0,0,next.z,1.6,1.65):null].filter(Boolean);
+      const mirror=s.variant===1?-1:1,shift=s.variant===2?VALLEY_LOOP/2:0;
+      for(const [pz,px,name,size] of VALLEY) {
+        const z=((pz+shift-s.sceneDistance)%VALLEY_LOOP+VALLEY_LOOP)%VALLEY_LOOP-8,x=px*mirror;
+        const breath=this.clearWave(s,z)*.1+this.build(s)*.012*Math.sin(s.beat*Math.PI-z*.09);
+        const width=size*(1-breath*.3),height=size*(1+breath);
+        let alpha=smooth((z+4)/6)*smooth((VALLEY_LOOP-10-z)/10);
+        const r=this.spriteRect(x,0,z,width,height);
+        if(!r)continue;
+        for(const k of keep) {
+          if(r.depth>k.depth+8)continue;
+          const gap=Math.max(r.left-k.right,k.left-r.right,r.top-k.bottom,k.top-r.bottom);
+          alpha=Math.min(alpha,smooth(gap/36));
+        }
+        if(alpha<=.02)continue;
         // Breathe the actual painted cutouts, not a synthetic replacement or glow pass.
-        this.sprite(this.art.frames[names[(worldIndex+s.variant+(side>0?1:0))%4]],x,0,z,size*(1-breath*.35),size*(1+breath));
-        if(worldIndex%4===0)this.sprite(this.art.frames.mushroom,side*(15+worldIndex%9),0,z+9,size*2.2,size*2.2);
+        this.opacity=alpha;this.sprite(this.art.frames[name],x,0,z,width,height);
+      }
+      this.opacity=1;
+    }
+    fallbackValley(s) {
+      // Explicit procedural fallback (never reported as generated art): a warm
+      // sculpted dune valley at the painted camera, with the same playable framing.
+      this.layer=0;
+      for(let i=-4;i<27;i++) {
+        const z=i*3-s.distance%3;
+        this.polygon([[-2.9,0,z-1.51],[2.9,0,z-1.51],[2.9,0,z+1.51],[-2.9,0,z+1.51]],i%2?[238,190,150]:[241,195,156]);
+      }
+      this.fins(s,1,[[226,150,120],[196,120,104]],10);
+    }
+    fins(s,e,colors,offset=9.5) {
+      // A few broad folded fins, leaving the corridor clear and quiet.
+      this.layer=2;
+      for(let i=0;i<4;i++)for(const side of [-1,1]) {
+        const zf=10+i*16-(s.distance*.35)%16+(side>0?7:0),x=side*(offset+i*.8+(side>0?1.6:0));
+        const wave=this.clearWave(s,zf)*.5,fade=smooth((zf+4)/8)*smooth((66-zf)/10);
+        const h=(3.4+((i+(side>0?1:0))%3)*1.5)*e*(1+wave*.12)*fade;
+        if(h<.05)continue;
+        this.polygon([[x,0,zf-4],[x+side*6,h,zf+1],[x+side*2.4,0,zf+6]],mixRGB(colors[0],[120,150,210],wave*.3));
+        this.polygon([[x,0,zf-4],[x+side*6,h,zf+1],[x+side*10,0,zf-1]],colors[1]);
       }
     }
     chromeImage() {
@@ -445,70 +538,25 @@
     }
     dino(s, options={}) {
       if(this.medium==='chrome') {this.chromeHero(s,options);return;}
-      const landing=options.lod?1:this.landingScale(s);
-      if(this.medium==='pixel-8') {this.pixelSprite(Math.floor(s.distance*2)%2?'runA':'runB',options.x||0,options.y??s.player.height,options.z||0,1.9*(options.scale||1)/landing,2.2*(options.scale||1)*landing);return;}
       if(this.medium==='ai-gouache') {
+        const landing=this.landingScale(s);
         const frame=!s.player.grounded?'jump':s.mode==='idle'?'idle':Math.floor(s.distance*2)%2?'runA':'runB';
-        this.sprite(this.art.frames[frame],options.x||0,options.y??s.player.height,options.z||0,2.6*(options.scale||1)/landing,3.1*(options.scale||1)*landing);return;
+        this.sprite(this.art.frames[frame],0,options.y??s.player.height,0,2.6/landing,3.1*landing);return;
       }
-      if(['ink-comic','cel-cartoon','gouache-fallback'].includes(this.medium)){this.drawnDino(s,options);return;}
-      const ext = mix(.035, 1, smooth(s.extrusion));
-      const color = options.color || (this.hero && s.recovery>0 ? [202,116,65] : null) || (this.anchor?this.theme.ink:GRAY).map((n, i) => mix(n, s.scene==='dream'?[64,78,133][i]:CHROME[i], s.extrusion));
-      const y = options.y ?? s.player.height, run = s.player.grounded ? Math.sin(s.distance * 3.8) * .17 : .10;
-      const lean = s.player.stumble > 0 ? -.12 : 0;
-      // Lap one: the volumetric hero starts at the runner sprite's height, then grows.
-      const scale=options.scale || (s.scene==='dream'?1+s.morph*.10:this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1);
-      const squash=options.lod?1:this.landingScale(s);
-      let index=0;
-      const part = (x,py,z,sx,sy,sz,c=color) => {
-        const split=options.fragment||0, n=index++;
-        this.box((options.x||0)+x*ext*scale+Math.sin(n*2.4)*split,y+py*scale*squash+Math.cos(n*1.2)*split,
-          (options.z||0)+(z+lean*py)*scale+Math.sin(n*1.8)*split,sx*ext*scale/squash,sy*scale*squash,sz*scale,c,split*.12);
-      };
-      if(options.lod) {
-        part(0,.9,0,.65,.85,.85);part(0,1.6,.45,.7,.9,.75);
-        part(0,.83,-.75,.35,.28,.85);
-        part(-.23,.28,-.1+run,.22,.56,.35);part(.23,.28,-.1-run,.22,.56,.35);
-        part(0,1.35,-.3,.18,.15,.3,GREEN);return;
-      }
-      part(0,.96,-.04,.68,.86,.96); // body
-      part(0,1.40,.31,.53,.65,.48); // upright neck
-      part(0,1.85,.66,.79,.65,.96); // oversized square head
-      part(0,1.42,.80,.70,.16,.73); // jaw joins the neck, leaving a small mouth gap below the head
-      part(0,.88,-.77,.46,.35,.75); part(0,1.03,-1.23,.27,.23,.42); // stepped tail
-      part(-.39,1.10,.52,.13,.15,.40); part(.39,1.10,.52,.13,.15,.40); // little arms
-      part(-.23,.36,-.18+run,.23,.65,.27); part(.23,.36,-.18-run,.23,.65,.27);
-      part(-.23,.09,run,.27,.18,.48); part(.23,.09,-run,.27,.18,.48);
-      const eye = s.extrusion > .4 ? [13,25,37] : [247,247,247];
-      part(-.403,1.99,.76,.018,.14,.14, eye); part(.403,1.99,.76,.018,.14,.14, eye);
-      if (s.extrusion > .4) {
-        part(-.416,2.01,.78,.015,.05,.05,[203,255,130]);
-        part(.416,2.01,.78,.015,.05,.05,[203,255,130]);
-        // A bright dorsal ridge maintains the dinosaur silhouette from the rear.
-        for (let i = 0; i < 4; i++) part(0,1.40-i*.12,-.26-i*.23,.18,.15,.14,GREEN);
-      }
+      this.sculptedHero(s,options);
     }
-    cactus(z, extrusion, scale = 1, x = 0, base = 0, color = null, tilt = 0) {
-      if(this.medium==='pixel-8'){this.pixelSprite('cactus',x,base,z,1.1*scale,1.4*scale);return;}
-      if(this.medium==='ai-gouache'){this.sprite(this.art.frames.cactus,x,base,z,1.6*scale,1.65*scale);return;}
-      if(['ink-comic','cel-cartoon','gouache-fallback'].includes(this.medium)){this.drawnCactus(z,scale,x,base);return;}
-      const ext = mix(.035, .64, smooth(extrusion));
-      const c = color || GRAY.map((n, i) => mix(n, GREEN[i], extrusion));
-      const spread = smooth(extrusion);
-      const box = (px,py,pz,sx,sy,sz) => {
-        const xx=px*scale, yy=py*scale;
-        this.box(x+xx*Math.cos(tilt)-yy*Math.sin(tilt),base+xx*Math.sin(tilt)+yy*Math.cos(tilt),z+pz*scale,sx*scale,sy*scale,sz*scale,c,tilt);
-      };
-      // The flat branches grow lateral volume as well as depth: still readable from behind.
-      box(0,.65,0,ext*.62,1.3,.25);
-      box(-.30*spread,.62,-.25,ext,.20,.65);
-      box(-.51*spread,.89,-.51,ext*.38,.65,.20);
-      box(.30*spread,.46,.27,ext,.19,.69);
-      box(.51*spread,.68,.56,ext*.38,.52,.19);
+    cactus(z, x = 0, base = 0) {
+      if(this.medium==='ai-gouache'){this.sprite(this.art.frames.cactus,x,base,z,1.6,1.65);return;}
+      // Saturated teal against the indigo night; warm coral in the fallback valley.
+      this.sculptedCactus(z,1,x,base,this.medium==='gouache-fallback'?[226,104,92]:[36,206,190]);
     }
     world(s) {
-      if(!['offline','rupture','extrusion','track','breath','collapse'].includes(s.scene)) {this.showWorld(s);return;}
-      const e = smooth(s.extrusion), b = s.projectionBlend, chrome=this.medium==='chrome', a=this.anchor;
+      if(s.scene==='dream') {
+        if(this.medium==='ai-gouache'){this.paintedGround(s);this.valleyProps(s);}
+        else this.fallbackValley(s);
+        return;
+      }
+      const e = smooth(s.extrusion), b = s.projectionBlend, chrome=this.medium==='chrome', a=this.anchor, collapse=s.scene==='collapse';
       this.layer=0;
       const width = mix(.035,5.8,e);
       const travel = s.distance % 3;
@@ -518,17 +566,22 @@
       else for (let i = Math.round(zLo/3); i < Math.ceil(zHi/3)+1; i++) {
         const z = i * 3 - travel;
         const ripple = s.scene === 'rupture' ? this.ripple(s,z) : 0;
-        const color = this.base.map((n,j) => mix(n,(i%2 ? [34,38,65] : [40,44,72])[j],e));
-        this.box(0,ripple-.10,z,width,.20,3.015,color);
+        // A quiet, continuous dark road: joints differ by a hair, never stripes.
+        const color = this.base.map((n,j) => mix(n,(i%2 ? [29,32,57] : [31,34,60])[j],e));
+        this.layer=0;this.box(0,ripple-.10,z,width,.20,3.015,color);
         if (e > .02) {
-          const light=this.clearWave(s,z)+this.build(s)*.18*(.5+.5*Math.sin(z*.55-s.beat*Math.PI*2));
-          for (const side of [-1,1]) this.box(side*width*.5,ripple+.015,z,.045+light*.12,.035,3.02,[103+light*90,224,233-light*65]);
-          // One sparse centre dash, not a wallpaper grid.
-          if (i%2 === 0) this.box(0,ripple+.018,z,.06,.025,.75,[116,123,153]);
+          const light=this.clearWave(s,z)*.7+this.build(s)*.12*(.5+.5*Math.sin(z*.55-s.beat*Math.PI*2));
+          // Hairline rails lie flush on the road edge; a decal layer, not a bright wall.
+          this.layer=1;
+          for (const side of [-1,1]) {
+            const x0=side*(width*.5-.03),x1=side*(width*.5+.015+light*.03);
+            this.polygon([[x0,ripple+.004,z-1.5],[x1,ripple+.004,z-1.5],[x1,ripple+.004,z+1.5],[x0,ripple+.004,z+1.5]],[64+light*90,150+light*70,172+light*50]);
+          }
+          if (i%2 === 0) this.polygon([[-.025,ripple+.004,z-.35],[.025,ripple+.004,z-.35],[.025,ripple+.004,z+.35],[-.025,ripple+.004,z+.35]],[66,72,108]);
         }
       }
       if (e < .01 && s.scene !== 'rupture' && !chrome) {
-        this.box(0,-.10,28,.06,.035,100,GRAY);
+        this.layer=0;this.box(0,-.10,28,.06,.035,100,GRAY);
       }
       this.layer=2;
       const tear = s.scene==='rupture' ? smooth(s.sceneTime/1.35) : s.scene==='extrusion' ? 1-smooth(s.sceneTime/1.4) : 0;
@@ -548,7 +601,8 @@
         if(hi>lo)this.polygon(edge,[24,20,43]);
         this.opacity=1;
       }
-      if (e > .01) {
+      // The fold returns only the sculpted ribbon and its one hero to the page.
+      if (e > .01 && !collapse) {
         // The original page physically folds into two wings off the unfolding ribbon.
         const fold = smooth(s.extrusion), wing = mix(0,1.45,fold);
         this.layer=-1;
@@ -557,260 +611,108 @@
           this.polygon([[x,-.15,-10],[x,-.15,60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),60],[x+side*26*Math.cos(wing),-26*Math.sin(wing),-10]],a?this.theme.page.map(n=>mix(n,237,.04)):[237,239,247]);
         }
         this.layer=2;
-        // Suspended, faceted sun: a solid object with a rotating equatorial ring.
-        const z = 67, y = 14, radius = 12 * e;
+        // One suspended faceted sun near the vanishing point, below the HUD band.
+        const z = 70, y = 9, radius = 7 * e;
         const top = [0,y+radius,z], bottom = [0,y-radius,z];
         const ring = Array.from({length:8},(_,i) => { const a = i*Math.PI/4 + (s.reducedMotion ? .2 : s.simTime*.035); return [Math.cos(a)*radius,y, z+Math.sin(a)*radius]; });
         for (let i=0;i<8;i++) {
-          this.polygon([top,ring[i],ring[(i+1)%8]],[244,108,175],.55+i*.055);
-          this.polygon([bottom,ring[(i+1)%8],ring[i]],[117,76,199],.6+i*.04);
+          this.polygon([top,ring[i],ring[(i+1)%8]],[244,108,175],.62+i*.05);
+          this.polygon([bottom,ring[(i+1)%8],ring[i]],[117,76,199],.62+i*.035);
         }
-        // Broad folded fins open with the first drop, leaving the central corridor clear.
-        for (let i=0;i<7;i++) for (const side of [-1,1]) {
-          const zf = 8+i*8 - (s.distance*.35)%8, x = side*(7+i*.35);
-          const wave=this.clearWave(s,zf);
-          const h = (5+(i%3)*4)*e*(1+wave*.26);
-          this.polygon([[x,0,zf-3],[x+side*7,h,zf+2],[x+side*3,0,zf+5]],[66+wave*45,51+wave*65,116+wave*55],.8+i*.05);
-          this.polygon([[x,0,zf-3],[x+side*7,h,zf+2],[x+side*9,0,zf-1]],[37,33,77]);
-        }
-        for (const m of s.monuments) {
-          // Monumental scenery recedes before it can engulf the near camera/corridor.
-          const wave=this.clearWave(s,m.z),grow = smooth(m.age / 1.0)*smooth((m.z-2)/10), h = m.scale * grow*(1+wave*.18);
+        this.fins(s,e,[[50,44,100],[29,26,64]]);
+        // At most two quiet background cactiforms, outside the corridor, sinking
+        // away before they reach the camera; no crossbeams or reward rows.
+        const live=this.live,next=live.obstacles?.find(o=>!o.resolved&&o.z>-.4);
+        // The hero's whole jump envelope, not its current height: no pumping while it jumps.
+        const low=this.spriteRect(0,0,0,2.4,2.5,[.45,.95]),high=this.spriteRect(0,1.7,0,2.4,2.5,[.45,.95]);
+        const keep=[low&&high?{...low,top:Math.min(low.top,high.top)}:low,next?this.spriteRect(0,0,next.z,1.4,1.6,[.5,.95]):null].filter(Boolean);
+        for (const m of s.monuments.slice(-2)) {
+          const wave=this.clearWave(s,m.z);let grow=smooth(m.age/1.0)*smooth((m.z-4)/10);
+          const full=Math.min(m.scale*.42,4.2),r=this.spriteRect(m.side*(10+full*.6),0,m.z,full*1.25,full*1.45,[.5,.97]);
+          // Sink away before the projected silhouette touches the hero or next hazard.
+          if(r)for(const k of keep){const gap=Math.max(r.left-k.right,k.left-r.right,r.top-k.bottom,k.top-r.bottom);grow*=smooth((gap-6)/50);}
+          const h=full*grow*(1+wave*.08);
           if(h<.05)continue;
-          const x = m.side*(5.5+h*.4);
-          this.cactus(m.z,1,h,x,-.1,m.side < 0 ? [145,105,225] : [72,169,186],m.side*.12*grow);
-          // Later laps unfold paired arches, with the same clear central corridor.
-          const unfold=s.variant?smooth(m.age/1.4):0;
-          this.box(x*.5,h*.95,m.z,Math.abs(x),.16+wave*.25,.45,[174+wave*55,233,241-wave*60],m.side*unfold*.25);
-          if(s.variant) {
-            this.cactus(m.z+2,1,h*.72,-x,-.1,[94,189,183],-m.side*.25*unfold);
-            this.box(0,h*1.15,m.z,Math.abs(x)*1.6,.32,.65,[212,191,244],Math.sin(unfold*Math.PI)*.15);
-          }
-          this.layer=-1;
-          this.box(x,-1.1,m.z,h*1.3,1.8,h*1.1,[38,44,70]);
-          this.layer=2;
-        }
-      }
-      if(this.medium==='pixel-8') {
-        this.layer=2;
-        for(let i=0;i<5;i++)this.pixelSprite('cloud',0,3.6+(i%2)*1.3,8+i*12-(s.distance*.12)%12,3,1);
-        this.layer=0;
-        for(let i=-8;i<42;i++){const z=i*2.2-s.distance%2.2;this.box(0,-.24-(i%3)*.08,z,.035,.035,.18+(i%4)*.07,GRAY);}
-      }
-      this.rewards(s);
-    }
-    palette(scene) {
-      return ({corkscrew:[245,231,203],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],extreme:[17,13,43],finale:[105,205,237],breath:[247,247,247]})[scene] || [9,11,29];
-    }
-    runway(s,style) {
-      const colors={corkscrew:[[245,223,164],[231,206,144],[37,44,64]],dream:[[210,192,231],[226,211,240],[115,88,157]],
-        desktop:[[127,148,190],[113,132,175],[241,219,150]],stampede:[[255,148,83],[255,171,93],[255,246,206]],
-        ending:[[255,148,83],[255,171,93],[255,246,206]]};
-      const c=(colors[style]||colors.ending).map(v=>v.slice());
-      const pulse=Math.exp(-(s.beat%1)*6);
-      c[2]=c[2].map(n=>Math.min(255,n+pulse*20));
-      const wide=['stampede','ending'].includes(style)?5.8+7.5*smooth((s.echoes-1)/16):5.8;
-      this.layer=0;
-      for(let i=-5;i<26;i++) {
-        const z=i*3-s.distance%3;
-        this.polygon([[-wide/2,0,z-1.51],[wide/2,0,z-1.51],[wide/2,0,z+1.51],[-wide/2,0,z+1.51]],c[Math.abs(i)%2]);
-        const light=this.clearWave(s,z),drive=this.build(s)*(.5+.5*Math.sin(z*.6-s.beat*Math.PI*2));
-        for(const side of [-1,1])this.box(side*wide*.5,.016,z,.055+light*.14+drive*.025,.035,3.01,c[2]);
-        if(style==='desktop') {
-          this.box(0,.025,z+1.12,wide-.15,.03,.35,[58,88,151]);
-          this.box(-1.5,.028,z-.15,1.8,.03,.11,[154,168,187]);
-          this.box(-1.5,.028,z-.48,1.8,.03,.11,[154,168,187]);
-          this.box(1.7,.028,z-.25,.65,.03,.55,[187,200,216]);
-        } else if(i%2===0) this.box(0,.025,z,.06,.03,.7,c[2]);
-      }
-    }
-    windowBox(x,y,z,w,h,seed=0,player=false) {
-      if(this.medium==='pixel-16') {
-        const landing=player?this.landingScale(this.s):1;
-        this.pixelSprite(player?(Math.floor(this.s.distance*2)%2?'windowA':'windowB'):'hazard',x,y,z,w/landing,h*landing);
-        return;
-      }
-      this.box(x,y+h*.5,z,w,h,.20,[229,235,241]);
-      this.box(x,y+h*.86,z-.115,w*.96,h*.20,.035,player?(this.s.recovery>0?[157,83,42]:[41,94,108]):[57,83,155]);
-      this.box(x+w*.39,y+h*.86,z-.145,w*.085,h*.10,.03,[248,206,167]);
-      if(player) {
-        // The player itself is a dimensional window, with a tiny voxel dinosaur inside.
-        const ink=[46,77,91];
-        this.box(x-.05,y+h*.42,z-.14,w*.29,h*.30,.05,ink);
-        this.box(x+w*.12,y+h*.61,z-.14,w*.33,h*.19,.05,ink);
-        this.box(x-w*.25,y+h*.39,z-.14,w*.28,h*.08,.05,ink);
-        for(const side of [-1,1])this.box(x+side*w*.09,y+h*.19,z-.14,w*.07,h*.19,.05,ink);
-        this.box(x+w*.19,y+h*.65,z-.18,w*.03,h*.03,.04,[240,251,233]);
-      } else {
-        this.box(x-w*.28,y+h*.47,z-.14,w*.11,h*.23,.04,[221,109,91]);
-        this.box(x+w*.09,y+h*.52,z-.14,w*.43,h*.05,.04,[137,151,171]);
-        this.box(x+w*.03,y+h*.39,z-.14,w*.30,h*.05,.04,[137,151,171]);
-        this.box(x+w*.21,y+h*.17,z-.14,w*.29,h*.14,.04,seed%2?[171,193,211]:[196,202,219]);
-      }
-    }
-    corkscrew(s) {
-      // Actual ribs and jaws surround the ribbon; the whole vertex space quarter-turns.
-      for(let i=0;i<8;i++) {
-        const z=6+i*8-s.sceneDistance%8;
-        for(let j=0;j<8;j++) {
-          const wave=this.clearWave(s,z);
-          const a=j*Math.PI/4+i*(s.variant===1?-.32:s.variant===2?.25:.065),r=4.8+wave*1.35;
-          // One outward snap travels through the jaws after each clear, not a camera kick.
-          this.layer=Math.sin(a)<-.1?-1:2;
-          this.box(Math.cos(a)*r,Math.sin(a)*r,z,3.25,.28+wave*.23,.50,wave>.3?[214,54,52]:[40,44,62],a+Math.PI/2);
-          if(j%2===0 && i<4) {
-            const t=a+.12;
-            this.polygon([[Math.cos(a-.12)*r,Math.sin(a-.12)*r,z-.25],[Math.cos(a+.12)*r,Math.sin(a+.12)*r,z-.25],[Math.cos(t)*(3.65+wave*.85),Math.sin(t)*(3.65+wave*.85),z+.4]],[255,239,193]);
-          }
-        }
-      }
-      if(s.variant)for(let strand=0;strand<2;strand++)for(let i=0;i<12;i++) {
-        const a=i*.72*(s.variant===1?-1:1)+strand*Math.PI;
-        this.layer=Math.sin(a)<-.1?-1:2;
-        this.box(Math.cos(a)*6.2,Math.sin(a)*6.2,7+i*5.4-s.sceneDistance%5.4,1.4,.65,2.4,strand?[255,238,173]:[68,164,171],a);
-      }
-      this.layer=2;
-    }
-    dream(s) {
-      if(this.medium==='ai-gouache'){this.paintedWorld(s);return;}
-      // Explicit procedural fallback, never reported as generated art.
-      this.layer=2;
-      for(let i=0;i<10;i++)for(const side of [-1,1]){const z=8+i*7-s.sceneDistance%7;this.drawnCactus(z,(2+i%3)*(1+this.clearWave(s,z)*.17),side*(6+i%3*2));}
-    }
-    desktop(s) {
-      for(let i=0;i<4;i++) {
-        const left=this.clearWave(s,18+i*5),right=this.clearWave(s,28+i*4);
-        this.windowBox(-7-i*.65-left*.45,.2+i*.45+left*.8,18+i*5,4.4,3.1,i);
-        this.windowBox(8+i*.55+right*.45,.3+i*.9+right*.8,28+i*4,4.4,3.1,i+1);
-      }
-      for(const w of s.windows) {
-        if(w.age<0)continue;
-        const wave=this.clearWave(s,w.z),pop=smooth(w.age/.35)*(1+wave*.10);
-        const fan=(s.variant?Math.sin(w.seed*.65)*3:0)+Math.sign(w.x)*wave*.45;
-        this.windowBox(w.x+fan,w.y+(1-pop)*2+(s.variant?(w.seed%3)*1.3:0),w.z,3.3*pop,2.5*pop,w.seed);
-        if(s.variant===2 && w.seed%3===0)this.windowBox(w.x+fan,w.y+3,w.z+1,2.1*pop,1.6*pop,w.seed+1);
-        this.layer=-1;
-        this.box(w.x,-.8+w.y*.3,w.z,3.5,1.5,2.2,[116,145,159]);
-        this.layer=2;
-      }
-    }
-    stampede(s,gather=0) {
-      const k=1-gather;if(k<.02)return;
-      const box=(x,y,z,sx,sy,sz,color,angle=0)=>this.box(x*k,y*k,mix(z,27,gather),sx*k,sy*k,sz*k,color,angle);
-      for(const tower of s.city) {
-        if(tower.z<-13)continue;
-        const age=tower.brokenAt===null?-1:s.simTime-tower.brokenAt;
-
-        for(const side of [-1,1]) {
-          const x=side*(8+(tower.id%3)*1.5), z=tower.z;
-          const wave=this.clearWave(s,z),height=tower.height*(1-wave*.14);
-          if(age>2.2) {
-            box(x,.22,z,3.8,.44,4.4,[123,81,196]);
-            box(x+side*.6,.9,z+.5,2.3,1.6,2.4,[255,208,88],side*.8);
-          } else if(age<0) {
-            box(x,height*.5,z,2.3+wave*.45,height,2.7,[255,205,79]);
-            box(x,height+.25,z,3+wave*.45,.5,3.3,[229,72,126]);
-            // Oversized candy roof and face-like windows make this a squashable cartoon city.
-            this.polygon([[x*k-1.5*k,height*k,z*k+27*gather],[x*k,(height+1.8)*k,z*k+27*gather],[x*k+1.5*k,height*k,z*k+27*gather]],[229,72,126]);
-            for(const eye of [-1,1])box(x+eye*.5,height*.7,z-1.4,.35,.65,.06,[255,250,227]);
-            for(let n=1;n<4;n++)box(x-.02,height*n/4,z-1.37,1.4,.18,.05,[92,76,180]);
-          } else {
-            for(let n=0;n<3;n++) {
-              const flight=Math.max(0,Math.sin(clamp(age/1.7)*Math.PI));
-              box(x+side*age*(2+n),Math.max(-2,tower.height*(n+.5)/3*(1-age*.7))+flight*2,z+Math.sin(n*2)*age*3,
-                2.3,tower.height/3,2.7,n===2?[229,72,126]:[255,205,79],side*age*(.7+n*.3));
-            }
-          }
+          this.sculptedCactus(m.z,h,m.side*(10+h*.6),0,m.side<0?[86,72,156]:[52,104,134],false);
         }
       }
     }
-    pack(s,gather=0) {
-      const positions=[-.95,.95,-2.4,2.4,-3.85,3.85];
-      for(let i=1;i<Math.min(40,s.echoes);i++) {
-        const row=Math.floor((i-1)/6),col=(i-1)%6;
-        const delay=(row+1)*.06, jumpAge=s.simTime-s.lastJumpTime-delay;
-        const waveAge=s.simTime-s.waveTime-(row+1)*.12;
-        const wave=waveAge>=0?Math.max(0,7.2*waveAge-8.5*waveAge*waveAge)*(s.reducedMotion?.35:1):0;
-        const jump=Math.max(wave,jumpAge>=0?Math.max(0,7.7*jumpAge-9*jumpAge*jumpAge):0);
-        const scale=(.88+(i%3)*.045)*(1-gather*.94);
-        const fan=s.variant===1?1+row*.22:1;
-        const spiral=s.variant===2?Math.sin(i*.8)*1.1:0;
-        this.dino(s,{x:(positions[col]*fan+spiral)*(1-gather),y:jump*(1-gather)+gather*(i%6)*2.5,
-          z:mix(3+row*2.5+(s.variant?Math.abs(positions[col])*.7:0),24,gather),scale,lod:true,color:i%3?[61,115,133]:[235,242,210]});
-      }
-    }
-    ending(s) {
-      const gather=s.scene==='coalesce'?smooth(s.sceneTime/2.2):1;
-      if(s.scene==='coalesce') {this.stampede(s,gather);this.pack(s,gather);}
-      const scale=12*gather;
-      this.opacity=s.scene==='collapse'?1-smooth(s.sceneTime/.85):1;
-      if(scale>.05 && this.opacity>.001 && this.medium!=='pixel-8') {
-        const fragment=s.scene==='collapse'?Math.sin(clamp(s.sceneTime/.85)*Math.PI)*4:0;
-        this.dino(s,{x:0,y:0,z:27,scale,color:[224,240,198],fragment});
-        // Monumental broken ribs of the whole journey converge behind the giant.
-        for(let i=0;i<9;i++) {
-          const a=i*Math.PI/8;
-          const x=Math.cos(a)*20,y=Math.sin(a)*23;
-          this.box(x,y,39,4,.6,1.2,i%2?[102,174,167]:[233,143,136],a+Math.PI/2);
+    contactAccents(s,painted) {
+      // A short (.36 s) contact accent, radius <= 1.3: two arcs for a clear, two
+      // more for a big clear. Painted landings are soft cream dust and umber strokes.
+      this.layer=3;
+      for(const effect of s.effects) {
+        if(effect.puff)continue;
+        const t=effect.age/.36;if(t>=1)continue;
+        const ease=1-(1-t)*(1-t),z=effect.z;
+        const arc=(from,to,radius,thick,color,alpha)=>{
+          const outer=[],inner=[];
+          for(let i=0;i<=6;i++){const a=mix(from,to,i/6);outer.push([Math.cos(a)*(radius+thick),.03,z+Math.sin(a)*(radius+thick)*.8]);inner.push([Math.cos(a)*radius,.03,z+Math.sin(a)*radius*.8]);}
+          this.opacity=alpha;this.polygon(outer.concat(inner.reverse()),color);
+        };
+        if(painted) {
+          for(const [dx,dz,size] of [[-.7,-.15,1],[.55,-.35,.8],[-.1,.45,.7]]) {
+            this.opacity=.42*(1-t);const r=(.18+ease*.34)*size;
+            this.polygon(Array.from({length:8},(_,i)=>{const a=i*Math.PI/4;return [dx*(1+ease*.4)+Math.cos(a)*r,.04+ease*.12,z+dz*(1+ease*.4)+Math.sin(a)*r*.7];}),[255,240,212]);
+          }
+          if(effect.big)for(const from of [.4,3.6])arc(from,from+1.1,mix(.8,1.2,ease),.07*(1-t)+.02,[140,94,68],.38*(1-t));
+        } else {
+          for(const from of [.25,3.4])arc(from,from+1.15,mix(.55,1.0,ease),.06*(1-t)+.015,[118,226,214],.7*(1-t));
+          if(effect.big)for(const from of [1.8,4.95])arc(from,from+.6,mix(.8,1.3,ease),.05*(1-t)+.012,[214,236,255],.55*(1-t));
         }
       }
       this.opacity=1;
     }
-
-    showWorld(s) {
-      const style=['coalesce','finale','collapse'].includes(s.scene)?'ending':s.scene==='crash'?'desktop':s.scene;
-      if(this.medium!=='ai-gouache')this.runway(s,style);this.layer=2;
-      if(s.scene==='corkscrew')this.corkscrew(s);
-      else if(s.scene==='dream')this.dream(s);
-      else if(s.scene==='desktop'||s.scene==='crash')this.desktop(s);
-      else if(s.scene==='stampede') {this.pack(s);this.stampede(s);}
-      else if(this.medium!=='pixel-8')this.ending(s);
-      this.rewards(s);
+    palette(scene) {
+      return ({dream:[250,208,167],extreme:[17,13,43],breath:[247,247,247]})[scene] || [9,11,29];
     }
-    gameplayWorld(s) {
+    gameplayWorld(s,showHero=true) {
       this.gameplay=true;this.layer=3;
-      if(s.scene==='finale') {
-        const fly=s.finalInput?clamp((s.sceneTime-s.finalJumpTime)/.84):0;
-        this.layer=4;this.cactus(mix(3.6,-2.7,fly),1,.75,0,0,[225,233,212]);
-        this.layer=3;this.box(0,.03,.25,2.5,.03,.14,[220,244,194]);
-      }
+      const painted=this.medium==='ai-gouache',warm=painted||this.medium==='gouache-fallback';
       const next=s.obstacles.find(o=>!o.resolved && o.z>-.3);
       if(next && s.projectionBlend>.1) {
-        const z=next.z-s.speed*.42,c=next.z/s.speed<.60?[252,237,112]:s.scene==='dream'?[124,85,138]:[47,87,99];
-        this.box(0,.035,z,2.9,.035,.14,c);
-        for(const side of [-1,1])this.box(side*1.45,.035,z+.36,.09,.035,.72,c);
+        // Same take-off line and colour switch, drawn as two quiet ticks and a hairline.
+        const z=next.z-s.speed*.42,near=next.z/s.speed<.60;
+        const color=warm?(near?[190,112,66]:[142,104,84]):(near?[236,214,132]:[88,102,150]);
+        this.opacity=near?.92:.6;this.layer=1;
+        this.polygon([[-.55,.03,z-.025],[.55,.03,z-.025],[.55,.03,z+.025],[-.55,.03,z+.025]],color);
+        for(const side of [-1,1])this.polygon([[side*1.2,.03,z-.05],[side*1.6,.03,z-.05],[side*1.6,.03,z+.05],[side*1.2,.03,z+.05]],color);
+        this.opacity=1;
       }
-      if(this.medium==='ai-gouache') {
-        for(const radius of [1,.77])this.polygon(Array.from({length:20},(_,i)=>{const a=i*Math.PI/10;return [Math.cos(a)*(.7+s.player.height*.08)*radius,.025,Math.sin(a)*.9*radius-.1];}),radius===1?[211,161,126]:[183,142,119]);
-      } else if(s.extrusion>.05)this.box(0,.025,-.1,.95+s.player.height*.16,.025,1.6+s.player.height*.12,[42,48,69]);
+      if(showHero && s.projectionBlend>.05) {
+        const lift=1/(1+s.player.height*.55);
+        if(painted)this.softShadow(.18,.12,.6*(.7+lift*.3),.72*(.7+lift*.3),[112,70,54],.42*lift);
+        else if(s.extrusion>.05)this.softShadow(0,-.05,.5*(.7+lift*.3),.95*(.7+lift*.3),warm?[118,72,56]:[3,4,14],(warm?.4:.62)*lift*smooth(s.extrusion));
+      }
       this.layer=4;
-      // Continuity probe: where the one hero's feet project this frame, and at what scale.
-      const hv=this.view([0,s.player.height,0]);
-      if(hv[2]>.35){const hp=this.project(hv);this.stats.hero={x:hp[0],y:hp[1],pxPerUnit:this.cam.focal/mix(24,Math.max(.35,hv[2]),this.cam.b),medium:this.medium};}
-      this.hero=true;
-      if(this.medium==='pixel-16')this.windowBox(0,s.player.height,0,1.6,2.05,0,true);
-      else this.dino(s);
-      if(s.recovery>0&&this.medium==='ai-gouache') {
-        this.layer=3;
-        // A steady amber ground halo keeps the real painted character unobscured.
-        for(let i=0;i<12;i++) {
-          const a=i*Math.PI/6,b=(i+1)*Math.PI/6;
-          this.polygon([[Math.cos(a)*.85,.05,Math.sin(a)*.85],[Math.cos(b)*.85,.05,Math.sin(b)*.85],[Math.cos(b)*1,.05,Math.sin(b)],[Math.cos(a),.05,Math.sin(a)]],[223,145,56]);
+      if(showHero) {
+        // Continuity probe: where the one hero's feet project this frame, and at what scale.
+        const hv=this.view([0,s.player.height,0]);
+        if(hv[2]>.35){const hp=this.project(hv);this.stats.hero={x:hp[0],y:hp[1],pxPerUnit:this.cam.focal/mix(24,Math.max(.35,hv[2]),this.cam.b),medium:this.medium};}
+        const first=this.faces.length;
+        this.hero=true;this.dino(s);this.hero=false;
+        for(let i=first;i<this.faces.length;i++)this.faces[i].hero=true;
+        if(s.recovery>0&&painted) {
+          this.layer=3;this.opacity=.7;
+          // A steady amber ground halo keeps the real painted character unobscured.
+          for(let i=0;i<12;i++) {
+            const a=i*Math.PI/6,b=(i+1)*Math.PI/6;
+            this.polygon([[Math.cos(a)*.85,.05,Math.sin(a)*.85],[Math.cos(b)*.85,.05,Math.sin(b)*.85],[Math.cos(b)*1,.05,Math.sin(b)],[Math.cos(a),.05,Math.sin(a)]],[223,145,56]);
+          }
+          this.opacity=1;
         }
       }
-      this.hero=false;this.layer=4;
       for(const o of [...s.obstacles,...(s.clearedTail||[])]) {
         if(o.z<=-8)continue;
         // Clearance is a score flag, never a shrink/eat animation. Keep full-height geometry.
-        this.layer=3;
-        if(s.extrusion>.05)this.polygon(Array.from({length:12},(_,i)=>{const a=i*Math.PI/6;return [Math.cos(a)*.48,.025,o.z+Math.sin(a)*.30];}),this.medium==='ai-gouache'?[183,142,119]:[42,48,69]);
-        this.layer=4;
-        if(this.medium==='pixel-16')this.windowBox(0,0,o.z,1.8,1.25,o.id);
-        else this.cactus(o.z,1,1,0,0,s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
+        if(s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
+        this.layer=4;this.cactus(o.z);
       }
-      // Use the reserved gameplay budget after the hero/hazards, so the full pack
-      // cannot crowd out its earned contact ring. No extra fullscreen pass.
-      this.rewards(s,true);
+      this.contactAccents(s,warm);
+    }
+    meter() {
+      const y=this.hudTop+this.hudSize+8;
+      return {y,bottom:y+30};
     }
     neonCamera(s) {
       const e=s.extreme,entry=smooth(s.sceneTime/1.35),height=e.visualHeight;
@@ -819,12 +721,14 @@
       const k=this.h*.095*(s.reducedMotion?1:mix(.94,1,entry));
       const unit=Math.min(this.h*.065,this.w*.105,54);
       // Reserve the full head below the meter, including short landscape screens.
-      const follow=Math.max(0,Math.min(this.h*.24,this.h-90-unit*2.72-142));
+      const follow=Math.max(0,Math.min(this.h*.24,this.h-90-unit*2.72-(this.meter().bottom+12)));
       const x=Math.min(k,this.w*.49/10.8),rise=follow*smooth(height/24);
-      this.cam={b:0,focal:24*k,cx:this.w*mix(.34,.27,entry),cy:mix(this.h*.77,this.h-90,entry)+height*k-rise};
-      this.extremeScale=k;this.extremeX=x;
+      // The painted hero's last projected feet are where the neon hero first stands.
+      const from=this.neonFrom||{x:this.w*.34,y:this.h*.77};
+      this.cam={b:0,focal:24*k,cx:mix(from.x,this.w*.27,entry),cy:mix(from.y,this.h-90,entry)+height*k-rise};
+      this.extremeScale=k;this.extremeX=x;this.extremeUnit=unit;
     }
-    extremeWorld(s,c) {
+    extremeWorld(s,c,showHero=true) {
       this.neonCamera(s);
       const e=s.extreme,w=this.w,h=this.h,k=this.extremeScale,kx=this.extremeX;
       const cx=this.cam.cx,cy=this.cam.cy,z=e.cactusZ*.45;
@@ -832,10 +736,10 @@
       let commands=1;
       c.fillStyle='#110d2b';c.fillRect(0,0,w,h);
       c.lineCap='round';c.lineJoin='round';
-      // A stable notebook of stars, not random per-frame grain or a blur pass.
-      c.strokeStyle='#393066';c.lineWidth=1.3;c.beginPath();
-      for(let i=0;i<24;i++) {
-        const x=(i*197+43)%w,y=(i*113+59)%h,r=3+i%3;
+      // A stable notebook of small stars, two quiet sizes; no grain or blur pass.
+      c.strokeStyle='#352c5f';c.lineWidth=1.1;c.beginPath();
+      for(let i=0;i<22;i++) {
+        const x=(i*197+43)%w,y=(i*113+59)%h,r=i%4?2.2:3.6;
         c.moveTo(x-r,y);c.lineTo(x+r,y);c.moveTo(x,y-r);c.lineTo(x,y+r);
       }c.stroke();commands++;
       const stroke=(path,fill,colour,width=2.5)=>{
@@ -844,7 +748,10 @@
       };
       // World coordinates become one continuous, rounded outline, including arms.
       // Anatomy uses the same contact-plane map as the hero's feet and top marker.
-      if(!e.hit) {
+      // A neon world leaving for the fold lets its giant go first (sky last).
+      const giant=this.giantAlpha??1;
+      if(!e.hit && giant>.01) {
+        c.globalAlpha=giant;
         const point=(x,y)=>[cx+(z+x)*kx,cy-y*k];
         const path=new Path2D();
         const move=(x,y)=>path.moveTo(...point(x,y)),line=(x,y)=>path.lineTo(...point(x,y));
@@ -858,9 +765,9 @@
         curve(2.45,20.5,3.85,20.4,3.83,19.2);line(3.8,15.6);
         curve(3.8,13.5,2.6,13.1,1.08,13.2);curve(.97,9,1.3,4,1.1,0);path.closePath();
         // Three cheap stroke layers give neon edge light without shadowBlur.
-        stroke(path,'#163c43','#2b777c',9);stroke(path,null,cyan,3.2);
+        stroke(path,'#163c43','#2b777c',8);stroke(path,null,cyan,2.8);
         c.save();c.clip(path);
-        c.strokeStyle=lime;c.lineWidth=1.7;c.beginPath();
+        c.strokeStyle=lime;c.lineWidth=1.5;c.beginPath();
         for(let i=0;i<3;i++) {
           const x=-.66+i*.63;c.moveTo(...point(x,.2));
           c.bezierCurveTo(...point(x+.23,7),...point(x-.24,16),...point(x,23.4));
@@ -879,18 +786,22 @@
         }
         const [mx,my]=point(0,21.65);c.fillStyle=ink;c.strokeStyle=lime;c.lineWidth=1.5;c.beginPath();
         c.ellipse(mx,my,kx*.38,k*(.10+surprise*.28),0,0,Math.PI*2);c.fill();c.stroke();commands+=2;
+        c.globalAlpha=1;
       }
       // A thin scribbled floor scrolls below the camera, rather than shrinking the world.
       if(cy<h+8){c.strokeStyle='#7762b0';c.lineWidth=2;c.beginPath();c.moveTo(0,cy+5);c.bezierCurveTo(w*.3,cy+2,w*.7,cy+9,w,cy+3);c.stroke();commands++;}
-      const unit=Math.min(h*.065,w*.105,54);
+      const unit=this.extremeUnit;
       const hero=(height,travel,opacity=1)=>{
         const x=cx+travel*.45*kx,y=cy-height*k;
         c.save();c.translate(x,y);c.scale(unit,unit);c.globalAlpha=opacity;
+        // The same anatomy as the sculpted and painted heroes: three dorsal spikes.
+        const spikes=new Path2D('M -.86 -1.17 L -.86 -1.42 L -.62 -1.2 Z M -.55 -1.2 L -.5 -1.5 L -.3 -1.25 Z M -.24 -1.36 L -.12 -1.7 L .02 -1.58 Z');
+        stroke(spikes,lime,ink,.06);
         // One authored silhouette connects tail, haunch, neck, snout and head.
         const body=new Path2D('M -.55 -.45 C -1.05 -.5 -1.36 -.94 -1.42 -1.42 C -.91 -1.08 -.65 -1.22 -.29 -1.18 C -.28 -1.65 -.02 -1.88 .27 -1.94 C .18 -2.57 .61 -2.67 1.16 -2.49 C 1.46 -2.42 1.63 -2.04 1.51 -1.77 L .73 -1.7 C .86 -1.39 .64 -1.05 .45 -.84 C .17 -.47 -.22 -.35 -.55 -.45 Z');
-        stroke(body,'#793b92','#593f8b',.18);stroke(body,null,pink,.065);
+        stroke(body,'#793b92','#593f8b',.16);stroke(body,null,pink,.06);
         const belly=new Path2D('M .48 -1.62 C .60 -1.26 .31 -.81 -.17 -.72 C -.51 -.64 -.65 -.78 -.7 -.86');
-        stroke(belly,null,cyan,.06);
+        stroke(belly,null,cyan,.055);
         const stride=Math.sin(e.pose*10)*(s.reducedMotion?.08:.17);
         const legs=new Path2D();legs.moveTo(-.47,-.58);legs.quadraticCurveTo(-.64,-.22,-.48-stride,-.04);legs.lineTo(-.14-stride,-.04);
         legs.moveTo(.17,-.6);legs.quadraticCurveTo(.39,-.30,.27+stride,-.06);legs.lineTo(.6+stride,-.06);
@@ -901,81 +812,45 @@
         c.fillStyle=ink;c.beginPath();c.ellipse(.92,-2.17,.085,.13,0,0,Math.PI*2);c.fill();
         c.fillStyle='#fff6b9';c.beginPath();c.arc(.94,-2.22,.035,0,Math.PI*2);c.fill();commands+=3;
         const grin=new Path2D('M .91 -1.88 Q 1.18 -1.92 1.43 -1.86');stroke(grin,null,cyan,.035);
-        const hatch=new Path2D('M -.39 -.99 L -.22 -1.14 M -.23 -.91 L -.06 -1.06 M .36 -2.35 L .46 -2.42 M -.92 -1.03 L -.8 -1.13');stroke(hatch,null,pink,.032);
+        const hatch=new Path2D('M -.39 -.99 L -.22 -1.14 M -.23 -.91 L -.06 -1.06 M .36 -2.35 L .46 -2.42');stroke(hatch,null,pink,.03);
         c.restore();return {left:x-1.53*unit,right:x+1.72*unit,top:y-2.72*unit,bottom:y+.08*unit};
       };
       const tape=e.history,index=e.phase==='rewind'?Math.floor((1-e.rewindPosition)*(tape.length-1)):tape.length-1;
-      if(['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
+      if(showHero && ['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
         const f=tape[Math.max(0,index-n*6)];hero(f[0],f[2]-n*.8,.08+(3-n)*.05);
       }
       const puffs=e.phase==='rewind'?[e.puff]:s.effects;
-      for(const puff of puffs)if(puff && puff.age<.65) {
+      for(const puff of puffs)if(puff && puff.age<.65 && (e.phase==='rewind'||puff.puff)) {
         const t=puff.age/.65,x=cx+puff.z*kx-unit*(1.1+t),y=cy-puff.height*k-unit*.6;
         c.save();c.translate(x,y);c.scale(unit*(.35+t*.6),unit*(.35+t*.6));c.globalAlpha=(1-t)*.65;
         const cloud=new Path2D('M -1 0 C -1.6 -.7 -.8 -1.3 -.3 -.9 C .2 -1.5 1 -.9 .8 -.4 C 1.6 0 .8 .8 .3 .5 C -.3 1.2 -1 .7 -1 0 Z');
         stroke(cloud,'#302351',puff.seed%2?cyan:pink,.08);c.restore();
       }
-      const bounds=hero(e.visualHeight,e.visualZ);
-      this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:bounds};
-      return commands;
-    }
-    rewards(s,groundOnly=false) {
-      // Brief, bounded world-space rings; no screen-space flashes or particle pool.
-      this.layer=1;
-      for(const effect of s.effects) {
-        if(effect.puff)continue;
-        const t=effect.age/1.5, radius=.6+t*(s.reducedMotion?2:effect.big?12:5);
-        const color=s.scene==='offline'?[135,145,148]:s.scene==='dream'?[151,98,174]:[109,210,196];
-        if(groundOnly && t<.75)for(let i=0;i<16;i++) {
-          const a=i*Math.PI/8,b=(i+1)*Math.PI/8;
-          const p=(angle,r)=>[Math.cos(angle)*r,.055,effect.z+Math.sin(angle)*r];
-          this.polygon([p(a,radius),p(b,radius),p(b,radius+.26*(1-t)),p(a,radius+.26*(1-t))],color);
-        }
-        if(groundOnly || !effect.big || effect.scene!==s.scene)continue;
-        this.layer=2;
-        const lift=Math.sin(t*Math.PI)*(s.reducedMotion?2:4);
-        if(s.scene==='desktop') {
-          for(let side of [-1,1])for(let i=0;i<2;i++)
-            this.windowBox(side*(5+i*1.8),2+i*.9+lift,9+i*3,3.8,2.8,i);
-        } else if(s.scene==='track') {
-          for(const side of [-1,1])for(let i=0;i<3;i++)
-            this.cactus(14+i*8,1,2.8+lift*.5,side*(5.8+i*2),0,[137,211,184],side*(s.reducedMotion?.12:t*.5));
-        } else if(s.scene==='corkscrew') {
-          for(let i=0;i<12;i++) {
-            const a=i*Math.PI/6,r=6+t*7;
-            this.box(Math.cos(a)*r,Math.sin(a)*r,15,2,.7,2,[246,232,159],a);
-          }
-        } else if(s.scene==='stampede') {
-          for(const side of [-1,1])for(let i=0;i<8;i++)
-            this.box(side*(5+i*.3),.1+Math.sin(clamp(t*2-i*.09)*Math.PI)*2,4+i*4,1,.4,2,[246,239,196]);
-        }
-        this.layer=1;
+      // A deferred hero (drawn above the outgoing world) reports its own commands.
+      if(showHero==='defer'){this.deferredNeon=()=>{const before=commands;c.lineCap='round';c.lineJoin='round';const b=hero(e.visualHeight,e.visualZ);this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:b};this.neonFoot={x:cx+e.visualZ*.45*kx,y:cy-e.visualHeight*k,height:2.72*unit};return commands-before;};}
+      else if(showHero) {
+        const bounds=hero(e.visualHeight,e.visualZ);
+        this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:bounds};
+        this.neonFoot={x:cx+e.visualZ*.45*kx,y:cy-e.visualHeight*k,height:2.72*unit};
       }
+      return commands;
     }
     remember(s) {
       // Two bounded scenery records, never old gameplay or a frozen screenshot.
       const out=this.lastScenery;
       for(const key of SCENERY_FIELDS)out[key]=s[key];
-      for(const key of ['monuments','windows','city','effects']) {
+      for(const key of ['monuments','effects']) {
         const items=out[key]||(out[key]=[]),source=s[key];
         for(let i=0;i<source.length;i++)Object.assign(items[i]||(items[i]={}),source[i]);
         items.length=source.length;
       }
-      out.player=s.player;out.obstacles=[];out.extreme=s.extreme?{...s.extreme}:null;
+      out.player=s.player;out.obstacles=[];out.flatAnchor=s.flatAnchor;out.extreme=s.extreme?{...s.extreme}:null;
     }
-    renderWorld(s,live,medium,target) {
+    renderWorld(s,live,medium,target,showHero=true) {
       this.medium=medium;this.opacity=1;
-      if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target),images:0,resolution:[target.canvas.width,target.canvas.height]};
-      const w=this.w,h=this.h,pixel=medium==='pixel-8'||medium==='pixel-16';
-      // Integer nearest-neighbour expansion happens in BACKING pixels, not CSS pixels.
-      const step=Math.max(2,Math.ceil(Math.max(target.canvas.width,target.canvas.height)/480));
-      let c=target;
-      if(pixel) {
-        const pw=Math.ceil(target.canvas.width/step),ph=Math.ceil(target.canvas.height/step);
-        if(this.pixelCanvas.width!==pw||this.pixelCanvas.height!==ph){this.pixelCanvas.width=pw;this.pixelCanvas.height=ph;}
-        c=this.pixelContext;c.setTransform(target.canvas.width/step/w,0,0,target.canvas.height/step/h,0,0);
-      }
-      c.imageSmoothingEnabled=!pixel;c.imageSmoothingQuality=medium==='ai-gouache'?'high':'low';
+      if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target,showHero),images:0,resolution:[target.canvas.width,target.canvas.height]};
+      const w=this.w,h=this.h,c=target;
+      c.imageSmoothingEnabled=true;c.imageSmoothingQuality=medium==='ai-gouache'?'high':'low';
       const e = smooth(s.extrusion);
       const palette=this.palette(s.scene), prev=this.palette(s.previousScene);
       const tone=palette.map((n,i)=>mix(prev[i],n,smooth(s.sceneTime/1.1)));
@@ -985,189 +860,187 @@
       this.background=bg;
       c.fillStyle = `rgb(${bg})`; c.fillRect(0,0,w,h);
       if (e > .01 && ['extrusion','track'].includes(s.scene)) {
-        const gradient = c.createRadialGradient(w*.53,h*.38,0,w*.53,h*.38,w*.7);
-        gradient.addColorStop(0,`rgba(104,49,121,${e*.5})`); gradient.addColorStop(1,'rgba(9,11,29,0)');
+        // One soft dusk glow behind the sun, centred on its projected position.
+        const v=this.view([0,9,70]),p=v[2]>.35?this.project(v):[w*.53,h*.38];
+        const gradient = c.createRadialGradient(p[0],p[1],0,p[0],p[1],Math.max(w,h)*.62);
+        gradient.addColorStop(0,`rgba(104,49,121,${e*.42})`); gradient.addColorStop(1,'rgba(9,11,29,0)');
         c.fillStyle=gradient; c.fillRect(0,0,w,h);
       }
       if(this.medium==='ai-gouache')this.paintedSky(c);
-      this.faces.length = 0;this.cost=0;this.gameplay=false;
-      this.world(s);this.gameplayWorld(live);
+      this.faces.length = 0;this.cost=0;this.gameplay=false;this.sink=null;this.live=live;
+      this.world(s);this.gameplayWorld(live,showHero);
       // Ground/decal passes avoid average-depth floor polygons cutting through feet.
       // Above-ground meshes retain stable camera-space painter ordering.
       this.faces.sort((a,b)=>a.layer-b.layer || b.depth-a.depth || a.order-b.order);
+      let images=(this.medium==='ai-gouache'?1:0)+this.drawFaces(c,this.faces);
+      c.globalAlpha=1;
+      return {commands:this.cost,images,resolution:[target.canvas.width,target.canvas.height]};
+    }
+    drawFaces(c,faces) {
       c.lineJoin='round';
       const path=points=>{c.beginPath();c.moveTo(...points[0]);for(let i=1;i<points.length;i++)c.lineTo(...points[i]);c.closePath();};
-      const ink=this.medium==='ink-comic',cel=this.medium==='cel-cartoon';
-      let images=this.medium==='ai-gouache'?1:0;
-      for (const f of this.faces) {
-        c.globalAlpha=f.opacity??1;
-        if(f.image){this.texture(c,f);images+=f.units;continue;}
-        const fading=(f.opacity??1)<.999;
-        // During the giant's exit, translucent facets must not be painted over an
-        // equally translucent hull or edge strokes (which compound the alpha).
-        if(!f.facets || !fading){path(f.points);c.fillStyle=f.color;c.fill();}
-        if(f.facets)for(const part of f.facets){path(part.points);c.fillStyle=part.color;c.fill();if(!fading){c.strokeStyle=part.color;c.lineWidth=.65;c.stroke();}}
-        // Plain faces still have their fill path; only facets changed it.
-        if(f.facets)path(f.points);
-        c.strokeStyle=f.edge?(Array.isArray(f.edge)?'rgb('+f.edge.join(',')+')':f.edge):ink?'#211c24':cel?'#23324b':f.color;
-        // Ground is a continuous material, never a wireframe. Internal joints are quiet.
+      const fill=(f,opacity)=>{
+        c.globalAlpha=opacity;path(f.points);c.fillStyle=f.color;c.fill();
+        // Translucent decals are never stroked (no compounding edges).
+        if(opacity<.999)return;
         let left=Infinity,right=-Infinity;
         for(const p of f.points){if(p[0]<left)left=p[0];if(p[0]>right)right=p[0];}
-        const span=right-left;
-        c.lineWidth=f.organic?clamp(span*.018,.45,1.25):ink?1.1:cel?.8:.65;
-        if(f.layer===0 || (f.organic&&!f.outline) || span<6)c.strokeStyle=f.color;
-        if(!fading)c.stroke();
-        if(ink&&f.layer>0&&!f.organic&&f.material==='248,231,196') {
-          const key='hatch';
-          if(!this.patterns[key])this.patterns[key]=c.createPattern(this.art[key],'repeat');
-          c.fillStyle=this.patterns[key];c.fill();
-        } else if(this.medium==='pixel-16'&&f.layer===0&&f.material==='127,148,190') {
-          if(!this.patterns.dither)this.patterns.dither=c.createPattern(this.art.dither,'repeat');
-          c.fillStyle=this.patterns.dither;c.fill();
-        }
+        // Ground is a continuous material, never a wireframe. Internal joints are quiet.
+        c.strokeStyle=f.edge&&right-left>=4?'rgb('+f.edge.join(',')+')':f.color;
+        c.lineWidth=f.edge?f.width||.8:.65;c.stroke();
+      };
+      let images=0;
+      for (const f of faces) {
+        // A cross-medium handoff draws the one incoming hero above the fading world.
+        if(f.hero&&this.deferred&&faces===this.faces){this.deferred.push(f);continue;}
+        if(f.image){c.globalAlpha=f.opacity??1;this.texture(c,f);images+=f.units;continue;}
+        if(f.group){for(const part of f.group)fill(part,part.opacity??1);continue;}
+        fill(f,f.opacity??1);
       }
       c.globalAlpha=1;
-      if(pixel){
-        c=target;c.save();c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=false;
-        c.drawImage(this.pixelCanvas,0,0,this.pixelCanvas.width*step,this.pixelCanvas.height*step);c.restore();images++;
-      }
-      return {commands:this.cost,images,resolution:pixel?[this.pixelCanvas.width,this.pixelCanvas.height]:[target.canvas.width,target.canvas.height]};
+      return images;
     }
-    draw(s) {
-      const start=performance.now(),w=this.w,h=this.h,c=this.ctx;
-      // Warm on readiness/resize, not at the first painted handoff.
-      if(this.art.status==='ready'&&!this.skyImage&&!this.native)this.scheduleSky();
-      let desired=this.art.medium(s);
-      // Readiness is reported immediately; an airborne fallback hero is not replaced mid-jump.
-      if(desired==='ai-gouache' && this.currentMedium==='gouache-fallback' && !s.player.grounded)desired=this.currentMedium;
-      const reset=this.lastRun!==s.run || s.simTime<(this.lastTime??0);
-      if(reset){this.hudDesktop=0;this.handoff=null;this.lastScenery={};this.currentMedium=desired;this.lastScene=s.scene;this.visual={bend:s.scene==='dream'?1.6+s.morph*.8:0,lift:s.scene==='desktop'?s.morph*.24:0};}
-      // The cel gather/finale/collapse already animate natively; do not double-render
-      // a whole pack merely because its scene name changed within the same medium.
-      if(!reset && (desired!==this.currentMedium || (this.handoff && s.scene!==this.lastScene))) {
-        // Rapid changes replace, rather than chain, the outgoing style.
-        this.handoff={medium:this.currentMedium,scenery:this.lastScenery,start:s.simTime,duration:s.reducedMotion?.24:.65};
-        this.lastScenery={};
-      }
-      this.currentMedium=desired;this.lastScene=s.scene;this.lastRun=s.run;
-      const dt=clamp(s.simTime-(this.lastTime??s.simTime),0,.1);this.lastTime=s.simTime;
-      const ease=1-Math.exp(-dt/ .18);
-      this.visual.bend=mix(this.visual.bend,s.scene==='dream'?1.6+s.morph*.8:0,ease);
-      this.visual.lift=mix(this.visual.lift,s.scene==='desktop'?s.morph*.24:0,ease);
-      // EXTREME has its own ready-time camera entrance, never an old pack projected
-      // through the new contact plane. Its outgoing neon frame still folds normally.
-      if(s.mode!=='running' || s.scene==='extreme')this.handoff=null;
-      let blend=this.handoff?smooth((s.simTime-this.handoff.start)/this.handoff.duration):1;
-      if(['pixel-8','chrome'].includes(this.handoff?.medium)&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
-      if(blend>=1)this.handoff=null;
-      // The integer runner ratio is only held while the Chromium sprites are on screen.
-      if(desired==='chrome'&&!this.native)this.setNative(Math.floor(devicePixelRatio)||1);
-      if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
-      // Both visible gameplay passes use this single current camera and transform.
-      this.camera(s);
-      const incoming=this.renderWorld(s,s,desired,c);
-      let commands=incoming.commands,images=incoming.images,passes=1,outgoingCommands=0;
-      if(this.handoff) {
-        const old=this.handoff.scenery;
-        const advance=dt*s.speed;
-        old.sceneTime+=dt;old.simTime=s.simTime;old.distance+=advance;old.sceneDistance+=advance;old.player=s.player;
-        for(const m of old.monuments||[]){m.age+=dt;m.z-=advance*.44;}
-        for(const win of old.windows||[]){win.age+=dt;win.z-=advance*.48;}
-        for(const tower of old.city||[])tower.z-=advance;
-        for(const effect of old.effects||[])effect.age+=dt;
-        const outgoing=this.renderWorld(old,s,this.handoff.medium,this.blendContext);
-        c.save();c.setTransform(1,0,0,1,0,0);c.globalAlpha=1-blend;
-        c.imageSmoothingEnabled=false;c.drawImage(this.blendCanvas,0,0);c.restore();
-        outgoingCommands=outgoing.commands;commands+=outgoingCommands;images+=outgoing.images+1;passes=2;
-      }
-      this.medium=desired;
-      if(document.documentElement.dataset.medium!==desired)document.documentElement.dataset.medium=desired;
-      this.remember(s);
-      if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
-      const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+this.pixelCanvas.width*this.pixelCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
-      this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
-      this.stats.worldResolution=incoming.resolution;
-      this.stats.budgets.used=incoming.commands;
-      Object.assign(this.stats.transition,{active:!!this.handoff,blend,passes,commands,incomingCommands:incoming.commands,outgoingCommands,images,bufferPixels,bufferBytes:bufferPixels*4});
-      this.stats.peakImages=Math.max(this.stats.peakImages||0,images);
-      this.stats.maxCombinedCommands=Math.max(this.stats.maxCombinedCommands||0,commands);
-      const e=smooth(s.extrusion);
-      this.hudDesktop=mix(this.hudDesktop||0,s.scene==='desktop'?1:0,ease);
-      c.imageSmoothingEnabled=true;
-      // Nothing of the game's own HUD exists before lap one's transformation is underway.
-      const hud=s.revealAt==null?0:smooth((s.simTime-s.revealAt)/.6);
-      this.stats.hudAlpha=hud;
-      c.save();c.globalAlpha=hud;
-      if(hud>0){
-      c.fillStyle='rgba(255,248,232,.55)';c.beginPath();
-      c.roundRect(w-158,18,142,s.mode==='idle'?24:66+36*this.hudDesktop,7);c.fill();
-      c.textAlign='right'; c.font='11px ui-monospace, monospace';
-      const hudInk='#302b3a';
-      c.fillStyle=hudInk;
-      c.fillText(String(s.score).padStart(4,'0'),w-22,34);
-      if (s.scene === 'offline' && s.mode !== 'idle') {
-        for(let i=0;i<s.target;i++) { c.fillStyle=i<s.success?'#535353':'#d4d4d4'; c.fillRect(w-61+i*14,47,7,3); }
-      }
-      if(s.mode!=='idle') {
-        c.fillStyle=hudInk;c.font='10px ui-monospace, monospace';
-        c.fillText('LAP '+s.lap+(s.lap>1?' · '+s.speedMultiplier.toFixed(2)+'×':''),w-22,64+36*this.hudDesktop);
-        if(s.combo>1)c.fillText(s.combo+' clears · ×'+s.multiplier,w-22,80+36*this.hudDesktop);
-      }
-      if(this.hudDesktop>.001) {
-        c.save();c.globalAlpha=this.hudDesktop;
-        c.fillStyle='#253d72';c.fillRect(0,58,w,27);
-        c.fillStyle='#fff';c.textAlign='left';c.font='11px ui-monospace, monospace';
-        c.fillText('dinosaurOS  /  workspace '+String(s.success+1).padStart(2,'0'),18,76);
-        c.fillStyle='#fff3d0';c.fillText('windows: '+(s.windows.length+1)+'    memory: unreasonably full',18,h-48);c.restore();
-      }
-      if(s.scene==='crash' && s.sceneTime>.7) {
-        c.save();c.globalAlpha=smooth((s.sceneTime-.7)/.3)*(1-smooth((s.sceneTime-1.85)/.35));
-        c.fillStyle='#2340a2';c.fillRect(0,0,w,h);
-        c.textAlign='left';c.fillStyle='#edf4ff';c.font='bold 18px ui-monospace, monospace';
-        c.fillText('WINDOW LIMIT EXCEEDED',w*.09,h*.36);
-        c.font='12px ui-monospace, monospace';c.fillText('The desktop could not contain it.',w*.09,h*.36+38);
-        c.fillText('Restoring the dinosaur…',w*.09,h*.36+63);c.restore();
-      }
+    hud(s,c,alpha) {
+      const w=this.w,h=this.h,top=this.hudTop,size=this.hudSize;
+      const painted=['ai-gouache','gouache-fallback'].includes(this.medium),light=painted||(this.medium==='chrome'&&!this.theme.dark);
+      const glass=painted?'rgba(255,248,234,.82)':light?'rgba(255,255,255,.92)':'rgba(14,16,36,.62)';
+      const line=painted?'rgba(112,74,52,.22)':light?'rgba(60,64,67,.18)':'rgba(255,255,255,.13)';
+      const ink=painted?'#4b2f25':light?'#3c4043':'#eef2ff',soft=painted?'#7a5a48':light?'#5f6368':'#a9b3d6';
+      c.save();c.globalAlpha=alpha;
+      // One compact two-line score chip, aligned with the Pause/hearts band.
+      const score=String(s.score).padStart(4,'0');
+      const detail='LAP '+s.lap+(s.lap>1?' · '+s.speedMultiplier.toFixed(2)+'×':'')+(s.combo>1?' · '+s.combo+' ×'+s.multiplier:'');
+      const longest='LAP '+s.lap+(s.lap>1?' · 0.00×':'')+' · 00 ×3';
+      c.font='600 15px ui-monospace, monospace';const a=c.measureText(score).width;
+      c.font='10px ui-monospace, monospace';const b=c.measureText(longest).width;
+      const width=Math.ceil(Math.max(a,b))+22,x=w-this.hudRight-width;
+      c.fillStyle=glass;c.strokeStyle=line;c.lineWidth=1;c.beginPath();c.roundRect(x+.5,top+.5,width-1,size-1,8);c.fill();c.stroke();
+      c.textAlign='right';c.fillStyle=ink;c.font='600 15px ui-monospace, monospace';
+      c.fillText(score,x+width-11,top+size/2-1);
+      c.fillStyle=soft;c.font='10px ui-monospace, monospace';
+      c.fillText(detail,x+width-11,top+size/2+12);
       if(s.scene==='extreme') {
-        const ex=s.extreme,top=this.cam.cy-ex.targetHeight*this.extremeScale;
-        c.save();c.textAlign='center';
-        c.fillStyle='#191333';c.fillRect(0,h-65,w,65);
-        c.strokeStyle='#ff64d8';c.lineWidth=2;c.beginPath();c.moveTo(15,h-65);c.lineTo(w-15,h-65);c.stroke();
+        const ex=s.extreme,topLine=this.cam.cy-ex.targetHeight*this.extremeScale,m=this.meter();
+        c.textAlign='center';
+        c.fillStyle='rgba(25,19,51,.94)';c.fillRect(0,h-65,w,65);
+        c.strokeStyle='#ff64d8';c.lineWidth=1.5;c.beginPath();c.moveTo(15,h-65);c.lineTo(w-15,h-65);c.stroke();
         c.fillStyle='#caff72';c.font='bold '+(w<450?10:13)+'px ui-monospace, monospace';
         c.fillText('MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',w/2,h-43);
         c.fillStyle='#faf2ff';c.font='bold '+(w<450?12:16)+'px ui-monospace, monospace';
         c.fillText(ex.caption,w/2,h-18);
         // The actual top is intentionally absent initially. An arrow and the meter
         // explain the offscreen goal without moving its contact line into view.
-        if(!ex.hit && top>139 && top<h-76) {
+        if(!ex.hit && topLine>m.bottom+9 && topLine<h-76) {
           c.strokeStyle='#caff72';c.lineWidth=1.5;c.setLineDash([5,5]);c.beginPath();
-          c.moveTo(w*.1,top);c.lineTo(w*.9,top);c.stroke();c.setLineDash([]);
-          c.fillStyle='#caff72';c.textAlign='left';c.font='bold 10px ui-monospace, monospace';c.fillText('TOP · 24',18,top-8);
+          c.moveTo(w*.1,topLine);c.lineTo(w*.9,topLine);c.stroke();c.setLineDash([]);
+          c.fillStyle='#caff72';c.textAlign='left';c.font='bold 10px ui-monospace, monospace';c.fillText('TOP · 24',18,topLine-8);
         }
-        c.fillStyle='#191333';c.fillRect(10,92,w-20,38);
+        c.fillStyle='rgba(25,19,51,.94)';c.beginPath();c.roundRect(10,m.y,w-20,30,7);c.fill();
         c.textAlign='left';c.fillStyle='#60ffeb';c.font='bold '+(w<450?9:11)+'px ui-monospace, monospace';
         const label=ex.phase==='active'?'TOP ↑ 24 · '+ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/'+ex.minPresses+' TAPS':ex.phase==='payoff'?'TOP NOTCH! · CLEARED':ex.phase==='rewind'?'REWIND ◀◀ · BACK TO THE BEGINNING':'TOP ↑ 24 · '+ex.minPresses+' TAPS · WAIT FOR GO';
-        c.fillText(label,18,108);
-        c.fillStyle='#4c376c';c.fillRect(18,118,w-36,4);c.fillStyle='#caff72';c.fillRect(18,118,(w-36)*ex.progress,4);
-        c.fillRect(w-20,115,2,10);
+        c.fillText(label,20,m.y+13);
+        c.fillStyle='#4c376c';c.fillRect(20,m.y+19,w-40,4);c.fillStyle='#caff72';c.fillRect(20,m.y+19,(w-40)*ex.progress,4);
+        c.fillRect(w-22,m.y+16,2,10);
         const puff=ex.phase==='rewind'?ex.puff:s.effects[s.effects.length-1];
-        if(puff && puff.age<.5) {
+        if(puff && puff.age<.5 && (ex.phase==='rewind'||puff.puff) && this.stats.extreme) {
           const b=this.stats.extreme.hero;
-          c.globalAlpha=1-puff.age/.5;c.fillStyle='#ff9ce5';c.textAlign='left';c.font='bold 12px ui-monospace, monospace';
+          c.globalAlpha=alpha*(1-puff.age/.5);c.fillStyle='#ff9ce5';c.textAlign='left';c.font='bold 12px ui-monospace, monospace';
           c.fillText(['PFFT!','BRRRP!','POOT!'][puff.seed%3],Math.max(18,b.left-12),Math.min(h-80,b.bottom+14));
         }
-        c.restore();
-      }
       }
       c.restore();
+    }
+    draw(s) {
+      const start=performance.now(),c=this.ctx;
+      // Warm on readiness/resize, not at the first painted handoff.
+      if(this.art.status==='ready'&&!this.skyImage&&!this.native)this.scheduleSky();
+      let desired=this.art.medium(s);
+      // Readiness is reported immediately; an airborne fallback hero is not replaced mid-jump.
+      if(desired==='ai-gouache' && this.currentMedium==='gouache-fallback' && !s.player.grounded)desired=this.currentMedium;
+      const reset=this.lastRun!==s.run || s.simTime<(this.lastTime??0);
+      if(reset){this.handoff=null;this.lastScenery={};this.currentMedium=desired;this.lastScene=s.scene;this.neonFrom=null;this.foldFrom=null;this.neonFoot=null;this.visual={bend:s.scene==='dream'?this.bend(s):0};}
+      if(!reset && s.scene!==this.lastScene) {
+        // Live handoff anchors: the next medium starts where this hero's feet were.
+        if(s.scene==='extreme')this.neonFrom=this.stats.hero&&this.lastScene==='dream'?{x:clamp(this.stats.hero.x,this.w*.15,this.w*.6),y:clamp(this.stats.hero.y,this.h*.4,this.h-80)}:null;
+        if(s.scene==='collapse')this.foldFrom=this.lastScene==='extreme'&&this.neonFoot?{...this.neonFoot}:null;
+      }
+      if(!reset && (desired!==this.currentMedium || (this.handoff && s.scene!==this.lastScene))) {
+        // Rapid changes replace, rather than chain, the outgoing style. Only the page
+        // sprite <-> sculpted morph shows both heroes; otherwise the outgoing world
+        // continues live without its hero, so exactly one hero is ever drawn.
+        const morph=this.currentMedium==='chrome'||desired==='chrome';
+        this.handoff={medium:this.currentMedium,scenery:this.lastScenery,start:s.simTime,duration:s.reducedMotion?.24:morph?.65:.42,hero:morph};
+        this.lastScenery={};
+      }
+      this.currentMedium=desired;this.lastScene=s.scene;this.lastRun=s.run;
+      const dt=clamp(s.simTime-(this.lastTime??s.simTime),0,.1);this.lastTime=s.simTime;
+      const ease=1-Math.exp(-dt/ .18);
+      this.visual.bend=mix(this.visual.bend,s.scene==='dream'?this.bend(s):0,ease);
+      if(s.mode!=='running')this.handoff=null;
+      let blend=this.handoff?smooth((s.simTime-this.handoff.start)/this.handoff.duration):1;
+      if(this.handoff?.medium==='chrome'&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
+      if(this.handoff?.medium==='vector-3d'&&desired==='chrome'&&s.scene==='collapse')blend=smooth((.12-s.projectionBlend)/.1);
+      if(blend>=1)this.handoff=null;
+      // The integer runner ratio is only held while the Chromium sprites are on screen.
+      if(desired==='chrome'&&!this.native)this.setNative(Math.floor(devicePixelRatio)||1);
+      if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
+      // Both visible gameplay passes use this single current camera and transform.
+      this.camera(s);
+      const deferHero=!!this.handoff&&!this.handoff.hero;
+      this.deferred=deferHero&&desired!=='neon-doodle'?[]:null;this.deferredNeon=null;
+      const incoming=this.renderWorld(s,s,desired,c,deferHero&&desired==='neon-doodle'?'defer':true);
+      const deferred=this.deferred;this.deferred=null;
+      let commands=incoming.commands,images=incoming.images,passes=1,outgoingCommands=0;
+      if(this.handoff) {
+        const old=this.handoff.scenery;
+        const advance=dt*s.speed;
+        old.sceneTime+=dt;old.simTime=s.simTime;old.distance+=advance;old.sceneDistance+=advance;old.player=s.player;
+        for(const m of old.monuments||[]){m.age+=dt;m.z-=advance*.44;}
+        for(const effect of old.effects||[])effect.age+=dt;
+        // A painted world leaving for EXTREME keeps its own camera while it fades.
+        const ownCamera=s.scene==='extreme'&&old.scene!=='extreme';
+        if(ownCamera)this.camera(old);
+        this.giantAlpha=this.handoff.medium==='neon-doodle'?1-smooth((s.simTime-this.handoff.start)/.2):1;
+        const outgoing=this.renderWorld(old,s,this.handoff.medium,this.blendContext,this.handoff.hero);
+        this.giantAlpha=1;
+        if(ownCamera)this.camera(s);
+        c.save();c.setTransform(1,0,0,1,0,0);c.globalAlpha=1-blend;
+        c.imageSmoothingEnabled=false;c.drawImage(this.blendCanvas,0,0);c.restore();
+        outgoingCommands=outgoing.commands;commands+=outgoingCommands;images+=outgoing.images+1;passes=2;
+        if(desired==='neon-doodle')this.neonCamera(s);
+        if(deferred){this.camera(s);this.medium=desired;images+=this.drawFaces(c,deferred);}
+        if(this.deferredNeon){this.neonCamera(s);const extra=this.deferredNeon();this.deferredNeon=null;incoming.commands+=extra;commands+=extra;}
+      }
+      this.medium=desired;
+      if(document.documentElement.dataset.medium!==desired)document.documentElement.dataset.medium=desired;
+      this.remember(s);
+      if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
+      const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
+      this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
+      this.stats.worldResolution=incoming.resolution;
+      this.stats.budgets.used=incoming.commands;
+      Object.assign(this.stats.transition,{active:!!this.handoff,blend,passes,commands,incomingCommands:incoming.commands,outgoingCommands,images,bufferPixels,bufferBytes:bufferPixels*4});
+      this.stats.peakImages=Math.max(this.stats.peakImages||0,images);
+      this.stats.maxCombinedCommands=Math.max(this.stats.maxCombinedCommands||0,commands);
+      this.stats.peakPassCommands=Math.max(this.stats.peakPassCommands||0,incoming.commands,outgoingCommands);
+      c.imageSmoothingEnabled=true;
+      // Nothing of the game's own HUD exists before lap one's transformation is underway.
+      const hud=s.revealAt==null?0:smooth((s.simTime-s.revealAt)/.6);
+      this.stats.hudAlpha=hud;
+      if(hud>0)this.hud(s,c,hud);
       this.stats.polygons=commands;
       this.stats.maxPolygons=Math.max(this.stats.maxPolygons,commands);
       this.stats.renderMs=performance.now()-start;
       this.stats.transition.renderMs=this.stats.renderMs;
       this.stats.transition.peakCommands=this.stats.maxCombinedCommands;
+      this.stats.transition.peakPassCommands=this.stats.peakPassCommands;
       this.stats.transition.peakImages=this.stats.peakImages;
       this.stats.peakRenderMs=Math.max(this.stats.peakRenderMs||0,this.stats.renderMs);
       this.stats.transition.peakRenderMs=this.stats.peakRenderMs;
+    }
+    bend(s) {
+      // A moderate painted path bend that grows a little with each clear.
+      return 1.1+Math.min(s.morph,6)*.15;
     }
   }
   window.DinoRenderer = DinoRenderer;

@@ -2,10 +2,18 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #f7f7f7; color: #535353; font: 15px/1.6 system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 #game { display: block; width: 100%; height: 100%; touch-action: none; }
 button:focus-visible, a:focus-visible { outline: 2px solid #2bb9c9; outline-offset: 3px; }
-#chapter { position: fixed; left: 20px; bottom: max(22px, env(safe-area-inset-bottom)); color: #c6d5ec; pointer-events: none; font: 10px ui-monospace, monospace; letter-spacing: .24em; }
+/* One quiet HUD band: Pause, hearts and the canvas score chip share its top and height.
+   Night/neon use dark glass with light ink; the painted valley uses cream glass. */
+:root { --hud-top: max(12px, env(safe-area-inset-top)); --hud-left: max(12px, env(safe-area-inset-left)); --hud-size: 36px;
+  --glass: rgba(14,16,36,.62); --glass-line: rgba(255,255,255,.13); --glass-ink: #eef2ff; --heart: #ff8fb0; }
+@media (pointer: coarse) { :root { --hud-size: 44px; } }
+html:is([data-medium="ai-gouache"], [data-medium="gouache-fallback"]) { --glass: rgba(255,248,234,.82); --glass-line: rgba(112,74,52,.22); --glass-ink: #4b2f25; --heart: #b4434f; }
+html:is([data-phase="opening"], [data-medium="chrome"]) { --glass: rgba(255,255,255,.92); --glass-line: rgba(60,64,67,.18); --glass-ink: #3c4043; --heart: #a3485a; }
+@media (prefers-color-scheme: dark) { html:is([data-phase="opening"], [data-medium="chrome"]) { --glass: rgba(48,49,52,.92); --glass-line: rgba(255,255,255,.12); --glass-ink: #e8eaed; --heart: #f28b9a; } }
+#chapter { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom)); padding: 4px 10px; border: 1px solid var(--glass-line); border-radius: 999px; color: var(--glass-ink); background: var(--glass); pointer-events: none; font: 500 11px/1.3 system-ui, sans-serif; letter-spacing: .02em; }
+#chapter:empty { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
 
-html[data-scene="dream"] #chapter, html[data-scene="desktop"] #chapter, html[data-scene="stampede"] #chapter { color: #33445e; }
 /* Standalone end card (score, best, play again, share). */
 #end { position: fixed; z-index: 20; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); width: min(680px, calc(100% - 24px)); transform: translateX(-50%); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid #d9dfe2; border-radius: 8px; background: #fffffff5; color: #39414a; box-shadow: 0 4px 25px #0001; font: 13px/1.4 system-ui, sans-serif; }
 #end[hidden] { display: none; }
@@ -21,18 +29,13 @@ html[data-scene="dream"] #chapter, html[data-scene="desktop"] #chapter, html[dat
 @media (max-width: 600px) { #end { flex-direction: column; align-items: stretch; gap: 10px; } #end .end-actions { justify-content: flex-end; } }
 
 /* A steady, high-contrast recovery cue, separate from the timing corridor. */
-#health { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 44px); left: max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 9px; padding: 2px 8px; border: 1px solid #8884; border-radius: 6px; background: #fffffff0; color: #75424a; pointer-events: none; }
-#health .hearts { font: 22px/1.3 system-ui, sans-serif; letter-spacing: 3px; }
-#health .health-cue { font: 9px ui-monospace, monospace; letter-spacing: .04em; }
-#health[data-recovering="true"] { border-color: #a76135; color: #85451e; background: #fff1db; }
-html[data-scene="desktop"] #health { top: calc(max(12px, env(safe-area-inset-top)) + 80px); }
-
-/* Art-medium contrast is independent of camera/spatial state and lap variants. */
-html:is([data-medium="ink-comic"], [data-medium="cel-cartoon"], [data-medium="ai-gouache"], [data-medium="gouache-fallback"], [data-medium="pixel-8"]) #chapter { color: #302b3a; background: #fff8e8d9; padding: 2px 5px; border-radius: 2px; }
-html[data-medium="pixel-16"] #chapter { color: #fff3d0; background: #253d72; padding: 2px 5px; }
+#health { position: fixed; top: var(--hud-top); left: calc(var(--hud-left) + var(--hud-size) + 8px); height: var(--hud-size); display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--glass-line); border-radius: 8px; background: var(--glass); color: var(--heart); pointer-events: none; }
+#health .hearts { font: 17px/1 system-ui, sans-serif; letter-spacing: 2px; }
+#health .health-cue { color: var(--glass-ink); font: 600 9px ui-monospace, monospace; letter-spacing: .04em; }
+#health[data-recovering="true"] { border-color: #d98a4a; color: #e6904f; }
 
 /* Medium changes tint the existing controls, never duplicate their text. */
-#health { transition: top .55s ease, color .55s ease, background-color .55s ease, border-color .55s ease, opacity .6s ease, visibility 0s; }
+#health, #pause { transition: color .55s ease, background-color .55s ease, border-color .55s ease, opacity .6s ease, visibility 0s; }
 #chapter { transition: color .55s ease, background-color .55s ease, opacity .6s ease, visibility 0s; }
 
 /* Chrome's offline opening. Layout adapted from Chromium net_error.css and
@@ -91,7 +94,7 @@ html:not([data-revealed="true"]) :is(#health, #chapter) { opacity: 0; visibility
 @media (prefers-color-scheme: dark) { #chrome-opening .chrome-footer { background: #202124; box-shadow: 0 -12px 24px #202124; } }
 
 /* A single quiet affordance; all other controls exist only in the paused dialog. */
-#pause { position: fixed; z-index: 13; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 30px; height: 30px; border: 1px solid #8885; border-radius: 6px; color: #38464f; background: #fffffff0; font: 16px system-ui; cursor: pointer; }
+#pause { position: fixed; z-index: 13; top: var(--hud-top); left: var(--hud-left); width: var(--hud-size); height: var(--hud-size); padding: 0; border: 1px solid var(--glass-line); border-radius: 8px; color: var(--glass-ink); background: var(--glass); font: 15px/1 system-ui; cursor: pointer; }
 #pause[hidden], #pause-panel[hidden], #lap-status[hidden] { display: none; }
 #pause-panel { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: #11182770; }
 .pause-content { width: min(380px, calc(100% - 32px)); padding: 24px; border-radius: 12px; color: #303b46; background: #fffdf8; box-shadow: 0 12px 60px #0004; }
@@ -101,7 +104,7 @@ html:not([data-revealed="true"]) :is(#health, #chapter) { opacity: 0; visibility
 #bar button { padding: 12px; border: 1px solid #7d8e9760; border-radius: 6px; color: #303b46; background: #e9efed; font: 14px system-ui; cursor: pointer; }
 #bar button:disabled { opacity: .4; cursor: default; }
 #bar button.off { text-decoration: line-through; }
-#lap-status { position: fixed; z-index: 12; right: 16px; top: 18px; padding: 4px 8px; color: #39414a; background: #fffffff0; border-radius: 4px; font: 11px ui-monospace, monospace; pointer-events: none; }
+#lap-status { position: fixed; z-index: 12; right: var(--hud-left); top: var(--hud-top); height: var(--hud-size); display: flex; align-items: center; padding: 0 11px; border: 1px solid var(--glass-line); border-radius: 8px; color: var(--glass-ink); background: var(--glass); font: 11px ui-monospace, monospace; pointer-events: none; }
 html:not([data-phase="opening"]) #lap-status { display: none; }
 html[data-phase="fold"] #chrome-opening { background: transparent; }
 html[data-phase="fold"] :is(#health, #chapter) { transition: none; }

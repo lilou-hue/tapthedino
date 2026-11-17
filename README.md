@@ -69,10 +69,38 @@ is the English offline page in Chrome 157 on Linux.
 
 ## The world and EXTREME
 
-The pixel/vector/ink/gouache/desktop/cel journey retains the source's original
-136 BPM score, medium-specific build, earned landing response and bounded world
-waves. The painted scene has **one hero**, not flashing bonus dinosaur clones.
-Its original textured assets and atlas anchors are unchanged. Cleared cacti stay
+Each lap is a short, deliberate route: **Chrome page → sculpted night → painted
+valley → neon EXTREME → fold back to the page**
+(`offline → rupture → extrusion → track → dream → extreme → collapse → breath`).
+The ink corkscrew, desktop/crash and stampede/coalesce chapters were cut for
+polish; no mechanics changed. The route keeps the source's 136 BPM score,
+earned landing response and bounded world responses.
+
+- **Sculpted night:** a navy/violet miniature landscape with one faceted magenta
+  sun near the vanishing point, a quiet dark road with hairline rails, and a few
+  broad fins. The hero is one hand-authored, joined, low-sided profile (snout,
+  mouth notch, eye, neck, haunch, tapered tail, three spines, arm, running legs)
+  extruded from the page sprite's silhouette with three values from one key
+  light; planted feet sit on the ground. Hazards are single joined teal cacti. At
+  most two background cactiforms stand outside the corridor and sink away before
+  their projected silhouette meets the hero's jump envelope or the next hazard.
+- **Painted valley:** the original generated gouache valley, hero and props
+  (assets, anchors and atlas byte-identical) with an aspect-aware sky crop,
+  corridor brushwork plus broad outer ground past the frustum, a moderate path
+  bend, and asymmetric prop groups that fade before projected overlap. There is
+  **one painted hero**. Without the pack, an explicit warm sculpted fallback with
+  the same framing is used and is reported as `fallback`, never as painted.
+- **Neon EXTREME:** connected pink hero (the same three-spined anatomy), cyan
+  giant with its face, navy paper and wet puffs; the giant's top starts off-screen.
+- **Feedback:** short contact arcs (0.36 s, radius ≤1.3; cream dust in the
+  painting), two quiet take-off ticks with the same timing, soft layered
+  24-vertex shadows, and a small landing compression. Pause, hearts and score
+  share one top glass band; the chapter caption is a small pill.
+- **Handoffs:** the next medium starts where the hero's feet were. Only the page
+  sprite ↔ sculpted morph shows both heroes; otherwise the outgoing world fades
+  without its hero, and the neon giant fades first on the fold.
+
+Cleared cacti stay
 full-height and continue behind the hero to the near/offscreen boundary (`z > -8`);
 a bounded render-only tail survives stage transitions without old collisions or
 second scoring. Small geometry fixes join cactus arms, ground the trunk and pixel
@@ -100,20 +128,19 @@ and one contact per cactus remain; damage protection is now **0.35 s**, so
 separate missed hazards cost separate hearts. Live hazards remain capped at five
 and the render-only transition tail at eight.
 
-Track/corkscrew/dream/desktop targets are **six clears each** (formerly four).
-Their minimum/deadline pairs remain **10/14, 9.5/11, 11/12, 9.5/11 s**; more
-hazards fit the original chapter lengths instead of ending chapters early.
-Stampede targets **nine clears**, spawns only through 13.5 s, and retains its
-fixed 16 s musical build. Score remains landing-based, once per clear, plus
-EXTREME's single 150-point bonus; there are no points for spawning or tapping.
-A clean reference first lap now presents **43 main-world hazards**, resolves
-**39 clean contacts**, and scores **6,065** including three opening clears and
-EXTREME (rather than the old 3,515-point profile). The four unresolved hazards
-are discarded at chapter boundaries, never scored. Scores depend on actual
+Track and dream target **six clears each**, with minimum/deadline pairs of
+**10/14 s** and **11/12 s**. Their rhythm rows are explicit (track row 0, dream
+row 2), unchanged by the cuts. Dream ends grounded straight into EXTREME's
+1.5 s READY. Score remains landing-based, once per clear, plus EXTREME's single
+150-point bonus; there are no points for spawning or tapping. A clean reference
+first lap now presents **17 main-world hazards** (8 track, 9 dream), resolves
+**15 clean contacts**, and scores **2,465** including three opening clears and
+EXTREME (the former longer route scored 6,065). The two unresolved hazards are
+discarded at chapter boundaries, never scored. Scores depend on actual
 clears and combo: an ordinary clear is worth at most 150 points, and EXTREME
 always adds exactly 150, never a per-press award.
 
-After coalescence, **EXTREME** replaces the old gentle finale:
+After the painted valley, **EXTREME** is the finale:
 
 - 1.5 s explicit **MASH FAST** ready counter, then a fixed **4.5 s** climb toward
   a 24-unit cactus. READY shows the 18-tap target, not a misleading input count.
@@ -170,7 +197,8 @@ Browser verification is performed externally, without adding dependencies or
 shipping test controls. Headless timings are not physical-phone performance
 claims. Check both themes, touch DPR2 and desktop, first-attempt crash/retry,
 three successful lap returns, later Chrome damage, cactus pass-through, painted
-big clears, the 40-dino pack, and pause/mute/missing-asset fallbacks when syncing.
+big clears, short landscape EXTREME headroom, and pause/mute/missing-asset/no-audio
+fallbacks when syncing.
 
 ## Source, provenance and maintenance
 
