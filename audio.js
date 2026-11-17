@@ -143,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=47',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=48',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);
@@ -250,11 +250,18 @@
       o.onended=()=>{this.voices.delete(o);o.disconnect();f.disconnect();g.disconnect();};
       o.start(time);o.stop(time+duration);
     }
-    jump(plain) {
+    jump(plain,scene) {
       if(this.extreme || this.muted || this.failed)return;
-      if(this.context?.state==='running'){this.playJump(plain);return;}
+      if(this.context?.state==='running'){if(scene==='jelly'||scene==='moon')this.stageAction(scene);else this.playJump(plain);return;}
       // Only the pending launch, never airborne input spam; pause/reset/mute cancel it.
       this.pendingJump=plain;this.unlock();
+    }
+    stageAction(kind) {
+      if(this.extreme || this.muted || this.failed || this.context?.state!=='running')return;
+      const t=this.context.currentTime+.008;
+      if(kind==='slam')this.tone(t,220,.14,.045,'triangle',65);
+      else if(kind==='jelly')this.tone(t,145,.22,.055,'sine',620);
+      else this.tone(t,520,.55,.028,'sine',780);
     }
     playJump(plain) {
       if(!this.context || this.extreme)return;
@@ -264,7 +271,7 @@
     clear(plain,scene,big=false,variant=0) {
       if(!this.context) return;
       const t=this.context.currentTime+.008;
-      const note=({track:587,dream:659})[scene]||587;
+      const note=({track:587,corkscrew:440,jelly:698,dream:659,moon:880})[scene]||587;
       this.tone(t,plain?520:note,.10,.04,'triangle');
       if(!plain) this.tone(t+.09,note*1.5,.22,.035,'sine');
       // A distinct landing cadence per medium, below the existing music headroom.
@@ -327,11 +334,26 @@
           const t=a.currentTime+.008,note=146.83;
           this.tone(t,note,.16,.06,'triangle',note*.5);
           this.tone(t+.06,note*4,.12,.025,'sine');
+        } else if(['corkscrew','jelly','moon'].includes(s.scene)) {
+          const t=a.currentTime+.008,note=({corkscrew:220,jelly:261.63,moon:440})[s.scene];
+          this.tone(t,note,s.scene==='moon'?.65:.22,.035,s.scene==='corkscrew'?'triangle':'sine',note*(s.scene==='jelly'?2:1));
+          this.tone(t+.13,note*1.5,.3,.02,'sine');
         }
       }
       let scheduled=0;
       while(this.origin+this.step*BEAT/2<a.currentTime+.12 && scheduled++<4) {
         const n=this.step++,t=Math.max(a.currentTime+.005,this.origin+n*BEAT/2);
+        if(s.scene==='moon') {
+          if(n%8===0)this.tone(t,[220,261.63,329.63,293.66][Math.floor(n/8)%4],BEAT*5,.035,'sine');
+          if(n%16===4)this.tone(t,880,.65,.016,'sine',660);
+          continue;
+        }
+        if(s.scene==='corkscrew' || s.scene==='jelly') {
+          const jelly=s.scene==='jelly',note=(jelly?130.81:110)*[1,1.5,1.25,2][Math.floor(n/4)%4];
+          if(n%4===0)this.tone(t,note,jelly?.24:.11,.06,jelly?'sine':'triangle',jelly?note*2:note*.8);
+          if(n%8===2)this.tone(t,note*3,.13,.022,'sine');
+          continue;
+        }
         const dream=s.scene==='dream';
         const variation=s.variant||0;
         const bass=[73.42,73.42,87.31,65.41][(Math.floor(n/8)+variation)%4];

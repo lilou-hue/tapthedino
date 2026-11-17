@@ -69,12 +69,14 @@ is the English offline page in Chrome 157 on Linux.
 
 ## The world and EXTREME
 
-Each lap is a short, deliberate route: **Chrome page → sculpted night → painted
-valley → neon EXTREME → fold back to the page**
-(`offline → rupture → extrusion → track → dream → extreme → collapse → breath`).
-The ink corkscrew, desktop/crash and stampede/coalesce chapters were cut for
-polish; no mechanics changed. The route keeps the source's 136 BPM score,
-earned landing response and bounded world responses.
+Every lap is one continuous run: **Chrome page → sculpted night → ink gravity
+corkscrew → jelly jungle → painted valley → little moon → neon EXTREME → fold
+back to Chrome**. Internal scene names are
+`offline → rupture → extrusion → track → corkscrew → jelly → dream → moon → extreme → collapse → breath`.
+There is no mode selector, desktop/crash sequence, stampede or clone hero. Ink's
+quarter-turn gravity is restored without restoring the old disconnected scenery
+or hero. Music retains the 136 BPM transport with distinct ink, boing and sparse
+lunar arrangements. The original refined night/painted art and Chrome fold remain.
 
 - **Sculpted night:** a navy/violet miniature landscape with one faceted magenta
   sun near the vanishing point, a quiet dark road with hairline rails, and a few
@@ -84,6 +86,18 @@ earned landing response and bounded world responses.
   light; planted feet sit on the ground. Hazards are single joined teal cacti. At
   most two background cactiforms stand outside the corridor and sink away before
   their projected silhouette meets the hero's jump envelope or the next hazard.
+- **Inside out:** cream paper, black contours, red cactus targets and one ivory
+  sculpted hero. A rigid floor frame rotates the road, hero, hazards, shadow,
+  timing marker and tail together about the hero's foot. HUD stays upright;
+  the hero does **not** counter-rotate. Wall and ceiling jumps are real visible
+  rotated arcs, with the same collision coordinates in the local floor frame.
+- **Jelly jungle:** aqua glossy road, rounded rooted gummy plants, pink sculpted
+  hero and opaque cherry cacti/canopies. The visible underside matches the
+  collision head clearance; posts are outside the lane. Airborne squash never
+  stretches the hero above the published body height.
+- **Little moon:** white/lilac hero, pale crystal cacti, flat regolith corridor,
+  sunlit crater rims and a small Earth disc. Only the distant backdrop curves:
+  neither member of a pair is hidden behind a planet edge.
 - **Painted valley:** the original generated gouache valley, hero and props
   (assets, anchors and atlas byte-identical) with an aspect-aware sky crop,
   corridor brushwork plus broad outer ground past the frustum, a moderate path
@@ -118,29 +132,57 @@ Approach time is `max(0.95, 1.35 / speedMultiplier)` seconds, not extra distance
 that cancels the speed increase. Track's first spawn is at 0.65 s, with its first
 contact about 2 s after entry (formerly about 4.9 s), after the camera settles.
 
-Four deterministic long/short gap rhythms rotate by scene, lap and obstacle
-index: `[1.05, 1.5, 1.2, 1.65]`, `[1.4, 1.1, 1.6, 1.25]`,
-`[1.65, 1.2, 1.45, 1.05]`, and `[1.15, 1.55, 1.05, 1.4]` seconds.
-Gaps scale by `1 / sqrt(speedMultiplier)` with a **1 s floor**: the unchanged
-~0.86 s jump still has at least ~0.14 s landing recovery. No random stacks or
-new collision geometry. Three hearts, one-heart lap healing (maximum three),
-and one contact per cactus remain; damage protection is now **0.35 s**, so
-separate missed hazards cost separate hearts. Live hazards remain capped at five
-and the render-only transition tail at eight.
+Night alone retains the four deterministic rhythm rows, rotating by lap and
+obstacle index: `[1.05, 1.5, 1.2, 1.65]`, `[1.4, 1.1, 1.6, 1.25]`,
+`[1.65, 1.2, 1.45, 1.05]`, `[1.15, 1.55, 1.05, 1.4]`. Its rhythm ID is explicitly
+0; its gaps scale by `1 / sqrt(speedMultiplier)` with a **1 s floor**. It retains
+jump velocity **7.7**, gravity **18**, a **0.16 s** input buffer, six-clear target
+and **10/14 s** minimum/deadline. The deadline stops spawning; presented hazards
+finish before a grounded exit instead of disappearing at the boundary.
 
-Track and dream target **six clears each**, with minimum/deadline pairs of
-**10/14 s** and **11/12 s**. Their rhythm rows are explicit (track row 0, dream
-row 2), unchanged by the cuts. Dream ends grounded straight into EXTREME's
-1.5 s READY. Score remains landing-based, once per clear, plus EXTREME's single
-150-point bonus; there are no points for spawning or tapping. A clean reference
-first lap now presents **17 main-world hazards** (8 track, 9 dream), resolves
-**15 clean contacts**, and scores **2,465** including three opening clears and
-EXTREME (the former longer route scored 6,065). The two unresolved hazards are
-discarded at chapter boundaries, never scored. Scores depend on actual
-clears and combo: an ordinary clear is worth at most 150 points, and EXTREME
-always adds exactly 150, never a per-press award.
+### Stage mechanics (one button, fresh presses)
 
-After the painted valley, **EXTREME** is the finale:
+| Stage | Jump / gravity | Authored contacts and action |
+| --- | --- | --- |
+| Ink | 7.7 / 18 | Four cacti, **2.15 s** apart. Each earned landing turns the floor **90° once**, not once per pending credit. A full 0/90/180/270/360° revolution is visible. |
+| Jelly | 10 / 12 | Six cells **1.45 s** apart. Each floor cactus has a canopy **0.65 s** behind it, spawned together. Fresh ground press bounces; one fresh airborne press sets velocity **−16** to drop. Further airborne presses do nothing. |
+| Painted | 7.7 / 18 | Three two-jump phrases: six cacti with gaps **1.10, 1.80, 1.10, 1.80, 1.10 s**. This is a rhythm variation, not a new ability. |
+| Moon | 6 / 5 | Three pairs, **0.75 s** within each pair and **3.0 s** between pair starts. One 2.4 s float clears both; two credits arrive once on the shared landing. No airborne action or repeat buffering. |
+
+These new intervals are **seconds, never divided by the lap multiplier**. World
+movement still accelerates. New stages show their one-line cue immediately and
+spawn their first complete cell after **1 s**, giving **1.95–2.35 s** before first
+contact. Sequences stop after their authored count, then wait for every presented
+hazard to resolve and the player to land. Ink also waits for its final turn and
+brief settled endpoint. Turns take **0.70 s**, or a gentler **0.90 s** in reduced
+motion, and alternate direction on later laps. After a missed ink cactus, a
+surviving grounded exit finishes the revolution without awarding a false clear.
+
+Jelly's actual sculpted head height is `(41 − 0.5) / (47 / 2.2)` = **1.896 units**.
+The opaque canopy underside is **2.696**, so its maximum safe foot height is
+**0.8**. Contact uses `abs(z) < 0.4` and foot height above 0.8; floor contact uses
+foot height below 0.58. Passing a canopy grounded resolves it without points,
+pending credits or combo reset. A practical jelly rhythm is launch 0.25–0.35 s
+before a cactus, then drop 0.08–0.36 s after it. Holding the button cannot slam or
+auto-bounce. Moon's 3.6-unit apex and both pair members fit the authored camera.
+
+Three hearts, **0.35 s** contact recovery and one-heart lap healing (maximum
+three) remain. Every contact consumes that exact obstacle, including protected
+contacts. Live hazards are capped at five; compound spawns reserve two slots,
+and the collision-free cleared tail is capped at eight. Landings bank ground
+clears once; merely tapping, slamming, spawning or ducking under a canopy does
+not earn points. No transition erases a still-live canopy or changes gravity
+mid-flight.
+
+A clean deterministic first-lap reference now presents **30 ground hazards**
+(8 night, 4 ink, 6 jelly, 6 painted, 6 moon), plus six no-score canopies. Including
+three opening clears and EXTREME's single 150-point bonus, it scores **4,715**;
+two clean laps score **9,280** in the reference run. Scores depend on actual
+clears/combos and are not directly comparable with the shorter previous route.
+Existing best/share storage keys are retained; best scores are **not reset**.
+Each ordinary ground clear is worth at most 150 points.
+
+After the moon, **EXTREME** is the finale:
 
 - 1.5 s explicit **MASH FAST** ready counter, then a fixed **4.5 s** climb toward
   a 24-unit cactus. READY shows the 18-tap target, not a misleading input count.
@@ -163,7 +205,7 @@ After the painted valley, **EXTREME** is the finale:
 - Comic boost puffs, the cactus face and rewind use bounded geometry/effect pools
   and a maximum 240-frame scalar presentation tape, not replayed gameplay.
 
-Farts occur **only during EXTREME**; ordinary world jumps beep. Chrome phases retain
+Farts occur **only during EXTREME**; ordinary jumps use short synth cues, jelly boings/drops, and moon airy glides. Chrome phases retain
 Chromium press/reached samples, with no extra jump beep or clear chime; collisions
 use the same sad impact as every other medium. Optional locally hosted speech has
 caption fallback and never queues a missed cue after loading or unmuting.
@@ -184,19 +226,25 @@ python3 -m http.server 8000
 Open http://localhost:8000/. Do not open index.html as a file: artwork uses fetch.
 There is no service worker or offline cache to install or invalidate.
 
-Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 5 includes
+Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 6 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
 EXTREME state (forward cue times and first crossing), impact audio counts,
 close-camera/top/hero bounds, and opening/handoff geometry. `?debug` additionally exposes
 `advance(seconds)` and `freeze(true)` for stepped captures; `?debug&seed=N` makes
 the runner's randomness reproducible. Seed/stepping/freezing mark the run and all
 later restarts in the same page assisted: no best writes, banking or end card.
-There is no stage-skip or asset-readiness bypass.
+There is no stage-skip or asset-readiness bypass. Read-only stage inspection also
+includes `physics` (jump, gravity, air action, body/ceiling constants),
+`stagePattern` (spawn count, stopped, pending), obstacle `kind`, `worldRoll`,
+`rollTarget`, `rollProgress`, `floorNormal`, projected hazard probes and hero
+bounds. Exposure does not grant a state setter or a scoring shortcut.
 
 Browser verification is performed externally, without adding dependencies or
 shipping test controls. Headless timings are not physical-phone performance
 claims. Check both themes, touch DPR2 and desktop, first-attempt crash/retry,
-three successful lap returns, later Chrome damage, cactus pass-through, painted
+two-plus keyboard/touch lap returns, all ink orientations, jelly no-slam failure,
+jelly timing windows at 1×/1.8×, moon double credits, later Chrome damage, cactus
+pass-through, painted
 big clears, short landscape EXTREME headroom, and pause/mute/missing-asset/no-audio
 fallbacks when syncing.
 

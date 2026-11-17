@@ -3,11 +3,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #f7f7f7; col
 #game { display: block; width: 100%; height: 100%; touch-action: none; }
 button:focus-visible, a:focus-visible { outline: 2px solid #2bb9c9; outline-offset: 3px; }
 /* One quiet HUD band: Pause, hearts and the canvas score chip share its top and height.
-   Night/neon use dark glass with light ink; the painted valley uses cream glass. */
+   Night/moon/neon use dark glass; paper, jelly and paint use light glass. */
 :root { --hud-top: max(12px, env(safe-area-inset-top)); --hud-left: max(12px, env(safe-area-inset-left)); --hud-size: 36px;
   --glass: rgba(14,16,36,.62); --glass-line: rgba(255,255,255,.13); --glass-ink: #eef2ff; --heart: #ff8fb0; }
 @media (pointer: coarse) { :root { --hud-size: 44px; } }
-html:is([data-medium="ai-gouache"], [data-medium="gouache-fallback"]) { --glass: rgba(255,248,234,.82); --glass-line: rgba(112,74,52,.22); --glass-ink: #4b2f25; --heart: #b4434f; }
+html:is([data-medium="ai-gouache"], [data-medium="gouache-fallback"], [data-medium="ink-paper"], [data-medium="gummy"]) { --glass: rgba(255,248,234,.82); --glass-line: rgba(112,74,52,.22); --glass-ink: #4b2f25; --heart: #b4434f; }
 html:is([data-phase="opening"], [data-medium="chrome"]) { --glass: rgba(255,255,255,.92); --glass-line: rgba(60,64,67,.18); --glass-ink: #3c4043; --heart: #a3485a; }
 @media (prefers-color-scheme: dark) { html:is([data-phase="opening"], [data-medium="chrome"]) { --glass: rgba(48,49,52,.92); --glass-line: rgba(255,255,255,.12); --glass-ink: #e8eaed; --heart: #f28b9a; } }
 #chapter { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom)); padding: 4px 10px; border: 1px solid var(--glass-line); border-radius: 999px; color: var(--glass-ink); background: var(--glass); pointer-events: none; font: 500 11px/1.3 system-ui, sans-serif; letter-spacing: .02em; }

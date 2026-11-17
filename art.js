@@ -14,7 +14,7 @@
     async load() {
       const timeout=setTimeout(()=>{if(this.status==='loading'){this.status='fallback';this.fallbackReason='painted assets delayed';}},10000);
       try {
-        const manifestURL=new URL('assets/painted/manifest.json?v=47',location.href);
+        const manifestURL=new URL('assets/painted/manifest.json?v=48',location.href);
         const response=await fetch(manifestURL);
         if(!response.ok)throw new Error('manifest HTTP '+response.status);
         const manifest=await response.json();
@@ -25,7 +25,7 @@
           // Decode off the main thread before use, so no first painted frame pays for it.
           const image=new Image();image.onload=()=>{if(!image.naturalWidth)reject(new Error('empty '+file));else {this.loaded++;(image.decode?image.decode().catch(()=>{}):Promise.resolve()).then(()=>resolve(image));}};
           image.onerror=()=>reject(new Error('image unavailable: '+file));
-          const imageURL=new URL(file,manifestURL);imageURL.search='?v=47';image.src=imageURL.href;
+          const imageURL=new URL(file,manifestURL);imageURL.search='?v=48';image.src=imageURL.href;
         });
         const entries=Object.entries(manifest.atlases);
         const loaded=await Promise.all([...entries.map(async([key,atlas])=>{
@@ -53,6 +53,9 @@
       // Every lap starts/ends with the page's own runner; extrusion carries its sprites.
       // The fold keeps the sculpted hero until the camera is almost flat again.
       if(s.scene==='offline'||s.scene==='breath'||s.scene==='rupture'||(s.scene==='extrusion'&&s.extrusion<.025)||(s.scene==='collapse'&&s.projectionBlend<.12))return 'chrome';
+      if(s.scene==='corkscrew')return 'ink-paper';
+      if(s.scene==='jelly')return 'gummy';
+      if(s.scene==='moon')return 'lunar';
       if(s.scene==='extreme')return 'neon-doodle';
       if(s.scene==='dream')return this.status==='ready'?'ai-gouache':'gouache-fallback';
       return 'vector-3d';
