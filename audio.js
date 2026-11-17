@@ -143,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=45',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=46',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);

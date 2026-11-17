@@ -56,7 +56,7 @@ light/dark theme, resize and native DPR remain shared. A quiet original idle loo
 lasts 1.15 s, then the runner starts itself. First load still waits for input.
 Score and session identity survive; the lap increments and heals one heart
 (maximum three) exactly once. Later openings require two clears or the same
-collision-free deadline. Later Chrome contacts cost one heart with 0.8 s recovery,
+collision-free deadline. Later Chrome contacts cost one heart with 0.35 s recovery,
 resume in place without clearing session points, and show the game's own end card
 at zero hearts. Only lap one has free attempt resets.
 
@@ -82,25 +82,53 @@ and play one short procedural descending minor wah, including protected contacts
 They cannot later clear or collide again. This also applies to Chrome's free first
 attempt and the fatal EXTREME giant; clean jumps still retain their full-height tail.
 
-World speed increases by 14 percentage points per lap, capped at **1.70×**:
-8, 9.12, 10.24, …, 13.6 world units/s. Approach time also decreases from 2.4 s to
-`max(1.45, 2.4 / speedMultiplier)`; merely spawning farther away would not make
-approaches faster. Ordinary jump airtime stays about 0.86 s. Phrase spacing stays
-above 1.4 s; stampede keeps its six fair hazards and fixed musical timing.
+The main world is deliberately much harder than the authentic training prelude.
+First-lap speed is **11.2 world units/s** (40% above the former 8). Each lap adds
+18 percentage points, capped at **1.80×** the new base: 11.2, 13.216, 15.232,
+17.248, 19.264, then 20.16 units/s. The quiet LAP multiplier uses that new base.
+Approach time is `max(0.95, 1.35 / speedMultiplier)` seconds, not extra distance
+that cancels the speed increase. Track's first spawn is at 0.65 s, with its first
+contact about 2 s after entry (formerly about 4.9 s), after the camera settles.
+
+Four deterministic long/short gap rhythms rotate by scene, lap and obstacle
+index: `[1.05, 1.5, 1.2, 1.65]`, `[1.4, 1.1, 1.6, 1.25]`,
+`[1.65, 1.2, 1.45, 1.05]`, and `[1.15, 1.55, 1.05, 1.4]` seconds.
+Gaps scale by `1 / sqrt(speedMultiplier)` with a **1 s floor**: the unchanged
+~0.86 s jump still has at least ~0.14 s landing recovery. No random stacks or
+new collision geometry. Three hearts, one-heart lap healing (maximum three),
+and one contact per cactus remain; damage protection is now **0.35 s**, so
+separate missed hazards cost separate hearts. Live hazards remain capped at five
+and the render-only transition tail at eight.
+
+Track/corkscrew/dream/desktop targets are **six clears each** (formerly four).
+Their minimum/deadline pairs remain **10/14, 9.5/11, 11/12, 9.5/11 s**; more
+hazards fit the original chapter lengths instead of ending chapters early.
+Stampede targets **nine clears**, spawns only through 13.5 s, and retains its
+fixed 16 s musical build. Score remains landing-based, once per clear, plus
+EXTREME's single 150-point bonus; there are no points for spawning or tapping.
+A clean reference first lap now presents **43 main-world hazards**, resolves
+**39 clean contacts**, and scores **6,065** including three opening clears and
+EXTREME (rather than the old 3,515-point profile). The four unresolved hazards
+are discarded at chapter boundaries, never scored. Scores depend on actual
+clears and combo: an ordinary clear is worth at most 150 points, and EXTREME
+always adds exactly 150, never a per-press award.
 
 After coalescence, **EXTREME** replaces the old gentle finale:
 
-- 1.5 s explicit GET READY counter, then a fixed 6 s climb toward a 24-unit cactus.
+- 1.5 s explicit **MASH FAST** ready counter, then a fixed **4.5 s** climb toward
+  a 24-unit cactus. READY shows the 18-tap target, not a misleading input count.
 - A dedicated **neon-doodle** medium: indigo paper, continuous cyan/lime cactus,
   connected magenta/cyan hero, stable hatches, stars and comic boost clouds.
   The close camera starts with the actual top offscreen, follows the ascent and
   recorded rewind height, and reserves space for the head and readable HUD.
 - Forward WAV encouragement starts near the end of READY and in early ACTIVE,
   never payoff. The first height-24 crossing permanently stops forward speech
-  and switches to a truthful contact-pending caption; ten presses and contact
+  and switches to a truthful contact-pending caption; 18 fresh presses and contact
   are still required. A later height dip cannot restart speech.
-- At least ten fresh presses **and** reaching height 24 are required at contact.
-  Steady moderate tapping (about 2.5 Hz) works; a late burst cannot teleport upward.
+- At least **18 fresh presses and height 24** are required at contact.
+  Sustained 4.5–5 Hz tapping works; the old 2.5 Hz pace fails. Holding a key
+  cannot repeat inputs, and a late burst cannot teleport through the unchanged
+  8-unit/s ascent envelope. Height remains capped at 30.
 - A miss is fatal at contact, regardless of hearts or recovery. Success awards
   exactly 150 points once, followed by 1.4 s payoff and 2.2 s visual/audio rewind.
 - EXTREME's timing, height and difficulty are identical on every lap. It does not

@@ -27,14 +27,22 @@
   const debugMode = params.has('debug');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const darkQuery = matchMedia('(prefers-color-scheme: dark)');
-  const STEP = 1 / 120, BEAT = 60 / 136, MAX_HEALTH = 3, RECOVERY = .8;
+  const STEP = 1 / 120, BEAT = 60 / 136, MAX_HEALTH = 3, RECOVERY = .35;
   // Lap one's flat view: Chromium's 47px T-rex is the hero's 2.2 world units.
   const UNIT = 47 / 2.2, RUN_FRAMES = [88,132];
+  const WORLD_SPEED = 11.2, APPROACH = 1.35;
+  const EXTREME = {activeDuration:4.5,minPresses:18};
+  // Authored long/short rhythms, rotated by scene and lap; never stacked spawns.
+  // Even at the speed cap, 1 s leaves ~.14 s after the unchanged jump arc.
+  const GAP_RHYTHMS = [
+    [1.05,1.5,1.2,1.65], [1.4,1.1,1.6,1.25],
+    [1.65,1.2,1.45,1.05], [1.15,1.55,1.05,1.4]
+  ];
   const PHRASES = {
-    track:{target:4,deadline:14,minimum:10,interval:2.45,next:'corkscrew'},
-    corkscrew:{target:4,deadline:11,minimum:9.5,interval:2.05,next:'dream'},
-    dream:{target:4,deadline:12,minimum:11,interval:2.6,next:'desktop'},
-    desktop:{target:4,deadline:11,minimum:9.5,interval:2.0,next:'crash'}
+    track:{target:6,deadline:14,minimum:10,next:'corkscrew'},
+    corkscrew:{target:6,deadline:11,minimum:9.5,next:'dream'},
+    dream:{target:6,deadline:12,minimum:11,next:'desktop'},
+    desktop:{target:6,deadline:11,minimum:9.5,next:'crash'}
   };
   const clamp = (n,a=0,b=1) => Math.max(a,Math.min(b,n));
   const smooth = n => (n=clamp(n),n*n*(3-2*n));
@@ -65,11 +73,11 @@
     dismissCard(); audio.pause();audio.setExtreme(false);
     s = {
       mode:'idle', scene:'offline', previousScene:'offline', sceneTime:0, simTime:0, beat:0,
-      speed:8, speedMultiplier:1, approachTTC:2.4, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
+      speed:WORLD_SPEED, speedMultiplier:1, approachTTC:APPROACH, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
       health:MAX_HEALTH, maxHealth:MAX_HEALTH, recovery:0,
       lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0, waveTime:-100,
       earned:0, fallback:0, transitions:[], projectionBlend:0, extrusion:0,
-      obstacles:[], clearedTail:[], monuments:[], windows:[], city:[], pending:0, nextSpawn:2.7, serial:0,
+      obstacles:[], clearedTail:[], monuments:[], windows:[], city:[], pending:0, nextSpawn:2.7, serial:0, phraseSpawn:0,
       sceneDistance:0, worldRoll:0, rollFrom:0, rollTarget:0, rollTime:1,
       morph:0, morphTarget:0, lastJumpTime:-100, finalInput:false, finalJumpTime:0, finalJumpSerial:null,
       dropAt:0, cascadeCount:0, extreme:null, extremeCleared:false, inputCount:0,
@@ -109,8 +117,8 @@
     s.health=Math.min(s.maxHealth,s.health+1);
     // Session identity, time, score, earned totals and captured best survive the breath.
     s.lap++;s.variant=(s.lap-1)%3;
-    s.speedMultiplier=Math.min(1.7,1+.14*(s.lap-1));s.speed=8*s.speedMultiplier;
-    s.approachTTC=Math.max(1.45,2.4/s.speedMultiplier);
+    s.speedMultiplier=Math.min(1.8,1+.18*(s.lap-1));s.speed=WORLD_SPEED*s.speedMultiplier;
+    s.approachTTC=Math.max(.95,APPROACH/s.speedMultiplier);
     Object.assign(s,{success:0,target:2,lapEarned:0,lapScore:0,nextSpawn:.65,
       pending:0,combo:0,multiplier:1,echoes:1,morph:0,morphTarget:0,
       finalInput:false,finalJumpTime:0,finalJumpSerial:null,extreme:null,extremeCleared:false,dropAt:0,cascadeCount:0,
@@ -119,7 +127,7 @@
     Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0,stumble:0});
     s.clearedTail.length=0;s.chromeJump=false;s.ticks=0;s.flatAnchor=null;
     enter('offline','lap');
-    runner.maxSpeed=8.3;runner.setSpeed(Math.min(7.55,6*s.speedMultiplier));
+    runner.maxSpeed=8.3;runner.setSpeed(Math.min(8.3,6*s.speedMultiplier));
     // The quiet, original idle page has already breathed; subsequent laps start themselves.
     if(runner.ready){runner.jump();s.player.jumps++;audio.chrome('press');s.revealAt=s.simTime;}
   }
@@ -214,7 +222,7 @@
     // Only cleared geometry survives a phrase boundary; it has no collision/score path.
     s.clearedTail.push(...s.obstacles.filter(o=>o.clear && !o.hit).map(o=>({...o})));
     if(s.clearedTail.length>8)s.clearedTail.splice(0,s.clearedTail.length-8);
-    s.obstacles.length=0;s.pending=0;
+    s.obstacles.length=0;s.pending=0;s.phraseSpawn=0;
     // A phrase-ending landing still gets its brief response through the handoff.
     // Keep only genuine earned feedback; deadlines and non-play transitions reset it.
     if(reason!=='earned' || s.impact<=0){s.effects.length=0;s.impact=0;s.burst=0;}
@@ -225,7 +233,7 @@
     } else if(scene==='extrusion') {
       s.monuments=[{z:28,side:-1,scale:7,age:0},{z:43,side:1,scale:9,age:0}];
     } else if(PHRASES[scene]) {
-      s.success=0;s.target=PHRASES[scene].target;s.nextSpawn=scene==='track'?2.5:.15;
+      s.success=0;s.target=PHRASES[scene].target;s.nextSpawn=scene==='track'?.65:.15;
       s.morphTarget=0;
       if(scene==='track'){s.flatAnchor=null;if(s.revealAt===null)s.revealAt=s.simTime;}
       if(scene==='dream') turnWorld(Math.round(s.worldRoll/(Math.PI*2))*Math.PI*2);
@@ -233,7 +241,7 @@
     } else if(scene==='crash') {
       s.target=0;audio.stopVoices();
     } else if(scene==='stampede') {
-      s.success=0;s.target=5;s.nextSpawn=.15;s.echoes=1;
+      s.success=0;s.target=9;s.nextSpawn=.15;s.echoes=1;
       s.city=Array.from({length:24},(_,i)=>({id:i,z:18+i*9,brokenAt:null,height:5+(i%4)*2}));
     } else if(scene==='coalesce') {
       s.target=0;s.success=0;audio.stopVoices();
@@ -241,9 +249,9 @@
       s.finalInput=false;s.extremeCleared=false;s.target=1;s.success=0;
       Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
       s.worldRoll=0;s.rollFrom=0;s.rollTarget=0;s.morph=0;s.morphTarget=0;
-      s.extreme={phase:'ready',time:0,targetHeight:24,ttc:6,acceptedPresses:0,
+      s.extreme={...EXTREME,phase:'ready',time:0,targetHeight:24,ttc:EXTREME.activeDuration,acceptedPresses:0,
         firstPress:null,firstCross:null,forwardCues:[],hit:false,progress:0,cleared:false,contact:false,cactusZ:24,
-        caption:'GET READY · 1.5s · TAPS START AT GO',cue:-1,
+        caption:'MASH FAST · 1.5s · TAPS START AT GO',cue:-1,
         rewindPosition:0,history:[[0,24,0,0,10,10,0,0,0]],sample:0,visualHeight:0,visualZ:0,pose:0,
         boostAt:-100,recoilAge:10,puff:null};
       audio.stopVoices();
@@ -314,7 +322,9 @@
     if(allowSpawn && s.nextSpawn<=0 && s.obstacles.length<5) {
       // Spawn with a fixed TTC, regardless of viewport or camera.
       s.obstacles.push({id:++s.serial,z:s.speed*s.approachTTC,resolved:false,clear:false,hit:false});
-      s.nextSpawn=s.scene==='stampede'?2.45:Math.max(1.4,(PHRASES[s.scene]?.interval || 2.45)/Math.sqrt(s.speedMultiplier));
+      const stage=['track','corkscrew','dream','desktop','stampede'].indexOf(s.scene);
+      const rhythm=GAP_RHYTHMS[(stage+s.lap-1)%GAP_RHYTHMS.length];
+      s.nextSpawn=Math.max(1,rhythm[(s.phraseSpawn++ + stage+s.lap-1)%rhythm.length]/Math.sqrt(s.speedMultiplier));
     }
     for(const o of s.obstacles) {
       o.z-=s.speed*dt;
@@ -446,7 +456,7 @@
       // Close the spawner, not collision resolution: the last presented cactus is earned too.
       obstacles(dt,s.sceneTime<13.5);
       if(s.mode!=='running') return;
-      if(s.sceneTime>=16 && (p.grounded || justLanded)) enter('coalesce',s.success>=5?'earned':'deadline');
+      if(s.sceneTime>=16 && (p.grounded || justLanded)) enter('coalesce',s.success>=s.target?'earned':'deadline');
     } else if(s.scene==='coalesce') {
       if(s.sceneTime>=2.2) enter('extreme');
     } else if(s.scene==='extreme') {
@@ -465,7 +475,7 @@
     const e=s.extreme,p=s.player;e.time+=dt;
     if(e.phase!=='rewind')e.recoilAge=s.sceneTime-e.boostAt;
     if(e.phase==='ready') {
-      e.caption='GET READY · '+Math.max(0,1.5-e.time).toFixed(1)+'s · TAPS START AT GO';
+      e.caption='MASH FAST · '+Math.max(0,1.5-e.time).toFixed(1)+'s · TAPS START AT GO';
       if(e.time>=1.2 && e.cue<0){e.cue=0;forwardCue('click-it',1.35);}
       if(e.time>=1.5){e.phase='active';e.time=0;e.cue=0;e.caption='GO! Click it!';}
       return;
@@ -474,7 +484,7 @@
       p.velocity=Math.max(-9,p.velocity-5*dt);
       p.height=clamp(p.height+p.velocity*dt,0,e.firstPress===null?0:Math.min(30,1.35+8*(e.time-e.firstPress)));
       if(p.height===0){p.velocity=0;p.grounded=true;}
-      e.ttc=Math.max(0,6-e.time);e.cactusZ=4*e.ttc;
+      e.ttc=Math.max(0,e.activeDuration-e.time);e.cactusZ=24*e.ttc/e.activeDuration;
       e.progress=clamp(p.height/e.targetHeight);
       if(e.firstCross===null && p.height>=e.targetHeight){e.firstCross=s.simTime;audio.stopForward();}
       if(e.firstCross===null) {
@@ -483,9 +493,9 @@
       }
       // A height crossing is not a win, and cannot re-arm speech after a dip.
       e.caption=e.firstCross!==null?'KEEP GOING · CONTACT PENDING':e.time<.55?'GO! Click it!':e.time<1.65?'Click harder!':e.time<2.6?'Click it!':'KEEP TAPPING · REACH THE TOP';
-      if(e.time>=6 && !e.contact) {
+      if(e.time>=e.activeDuration && !e.contact) {
         e.contact=true;
-        if(e.acceptedPresses<10 || e.firstPress===null || p.height<e.targetHeight) {
+        if(e.acceptedPresses<e.minPresses || e.firstPress===null || p.height<e.targetHeight) {
           e.hit=true;e.caption='MISSED · RUN OVER';s.combo=0;s.multiplier=1;audio.impact();s.health=0;finishRun('death');return;
         }
         // Legacy finalInput is an alias for this genuine contact proof, not a fabricated jump.
@@ -674,7 +684,7 @@
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
       simTime:s.simTime,beat:s.beat,playerHeight:s.player.height,player:{...s.player},
       nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:s.echoes,
-      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
+      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,activeDuration:s.extreme.activeDuration,minPresses:s.extreme.minPresses,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
       entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:s.windows.length,towers:s.city.length,echoes:s.echoes,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,

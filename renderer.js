@@ -1146,7 +1146,7 @@
         }
         c.fillStyle='#191333';c.fillRect(10,92,w-20,38);
         c.textAlign='left';c.fillStyle='#60ffeb';c.font='bold '+(w<450?9:11)+'px ui-monospace, monospace';
-        const label=ex.phase==='active'?'TOP ↑ 24 · '+ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/10 TAPS':ex.phase==='payoff'?'TOP NOTCH! · CLEARED':ex.phase==='rewind'?'REWIND ◀◀ · BACK TO THE BEGINNING':'TOP ↑ 24 · EXTREME · WAIT FOR GO';
+        const label=ex.phase==='active'?'TOP ↑ 24 · '+ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/'+ex.minPresses+' TAPS':ex.phase==='payoff'?'TOP NOTCH! · CLEARED':ex.phase==='rewind'?'REWIND ◀◀ · BACK TO THE BEGINNING':'TOP ↑ 24 · '+ex.minPresses+' TAPS · WAIT FOR GO';
         c.fillText(label,18,108);
         c.fillStyle='#4c376c';c.fillRect(18,118,w-36,4);c.fillStyle='#caff72';c.fillRect(18,118,(w-36)*ex.progress,4);
         c.fillRect(w-20,115,2,10);

@@ -41,7 +41,7 @@
     async load() {
       const timeout=setTimeout(()=>{if(this.status==='loading'){this.status='fallback';this.fallbackReason='painted assets delayed';}},10000);
       try {
-        const manifestURL=new URL('assets/painted/manifest.json?v=45',location.href);
+        const manifestURL=new URL('assets/painted/manifest.json?v=46',location.href);
         const response=await fetch(manifestURL);
         if(!response.ok)throw new Error('manifest HTTP '+response.status);
         const manifest=await response.json();
@@ -51,7 +51,7 @@
           if(typeof file!=='string'||!/^[-\w.]+\.webp$/.test(file)){reject(new Error('invalid image path'));return;}
           const image=new Image();image.onload=()=>{if(!image.naturalWidth)reject(new Error('empty '+file));else {this.loaded++;resolve(image);}};
           image.onerror=()=>reject(new Error('image unavailable: '+file));
-          const imageURL=new URL(file,manifestURL);imageURL.search='?v=45';image.src=imageURL.href;
+          const imageURL=new URL(file,manifestURL);imageURL.search='?v=46';image.src=imageURL.href;
         });
         const entries=Object.entries(manifest.atlases);
         const loaded=await Promise.all([...entries.map(async([key,atlas])=>{
