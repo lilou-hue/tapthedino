@@ -120,11 +120,7 @@
     camera(s) {
       this.s=s;this.hero=false;
       if(s.scene==='extreme') {
-        // Orthographic pullback holds both the actual 24-unit top and base in view.
-        // Horizontal approach uses the same cactusZ as the fixed contact test.
-        const scale=Math.min((this.h-215)/34,this.w*.65/14)*(s.reducedMotion?1:1+.12*(1-smooth(s.sceneTime/1.5)));
-        this.cam={b:0,focal:24*scale,cx:this.w*.27,cy:this.h-75};
-        this.extremeScale=scale;return;
+        this.neonCamera(s);return;
       }
       const b=s.projectionBlend, blend=smooth(s.sceneTime/1.2);
       const from=this.pose(s.previousScene), to=this.pose(s.scene);
@@ -604,7 +600,7 @@
       this.rewards(s);
     }
     palette(scene) {
-      return ({corkscrew:[245,231,203],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],extreme:[235,224,197],finale:[105,205,237],breath:[247,247,247]})[scene] || [9,11,29];
+      return ({corkscrew:[245,231,203],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],extreme:[17,13,43],finale:[105,205,237],breath:[247,247,247]})[scene] || [9,11,29];
     }
     runway(s,style) {
       const colors={corkscrew:[[245,223,164],[231,206,144],[37,44,64]],dream:[[210,192,231],[226,211,240],[115,88,157]],
@@ -816,50 +812,112 @@
       // cannot crowd out its earned contact ring. No extra fullscreen pass.
       this.rewards(s,true);
     }
-    extremeWorld(s) {
-      const e=s.extreme,z=e.cactusZ*.45,k=this.extremeScale;
-      this.gameplay=true;this.layer=0;
-      this.box(0,-.2,8,4,.4,180,[217,208,174]);
-      this.layer=2;
-      const green=[67,151,105],dark=[35,106,78];
-      const surprise=smooth((e.visualHeight-15)/9),wobble=Math.sin(e.pose*18)*surprise*(s.reducedMotion?.06:.45);
-      // One continuous cactus, not a stack of ordinary obstacles.
-      this.box(0,e.targetHeight/2,z,1.2,e.targetHeight,1.4,green);
-      this.box(0,15,z-1.7,1,1,3,dark);this.organic(0,17+wobble,z-2.8-wobble,1,5,1,dark);
-      this.box(0,9,z+1.6,1,1,3,green);this.organic(0,11-wobble,z+2.7+wobble,1,5,1,green);
-      this.organic(0,e.targetHeight-.5,z,1.2,1,1.4,green);
-      for(let i=1;i<12;i++)this.box(-.64,i*2,z,.08,.18,1.65,[226,239,178]);
-      // The face stays below the target line; its jaw drops as the runner clears it.
-      for(const side of [-1,1]) {
-        this.organic(-.76,22.3,z+side*.38,.28,.55+surprise*.45,.55,[255,250,225]);
-        this.organic(-.94,22.3+surprise*.1,z+side*.38-.08,.12,.23,.21,[29,47,72]);
+    neonCamera(s) {
+      const e=s.extreme,entry=smooth(s.sceneTime/1.35),height=e.visualHeight;
+      // Close vertical framing never zooms out to expose the giant. The shared
+      // orthographic contact plane is compressed horizontally on narrow screens.
+      const k=this.h*.095*(s.reducedMotion?1:mix(.94,1,entry));
+      const unit=Math.min(this.h*.065,this.w*.105,54);
+      // Reserve the full head below the meter, including short landscape screens.
+      const follow=Math.max(0,Math.min(this.h*.24,this.h-90-unit*2.72-142));
+      const x=Math.min(k,this.w*.49/10.8),rise=follow*smooth(height/24);
+      this.cam={b:0,focal:24*k,cx:this.w*mix(.34,.27,entry),cy:mix(this.h*.77,this.h-90,entry)+height*k-rise};
+      this.extremeScale=k;this.extremeX=x;
+    }
+    extremeWorld(s,c) {
+      this.neonCamera(s);
+      const e=s.extreme,w=this.w,h=this.h,k=this.extremeScale,kx=this.extremeX;
+      const cx=this.cam.cx,cy=this.cam.cy,z=e.cactusZ*.45;
+      const ink='#17102e',cyan='#60ffeb',lime='#d2ff67',pink='#ff64d8';
+      let commands=1;
+      c.fillStyle='#110d2b';c.fillRect(0,0,w,h);
+      c.lineCap='round';c.lineJoin='round';
+      // A stable notebook of stars, not random per-frame grain or a blur pass.
+      c.strokeStyle='#393066';c.lineWidth=1.3;c.beginPath();
+      for(let i=0;i<24;i++) {
+        const x=(i*197+43)%w,y=(i*113+59)%h,r=3+i%3;
+        c.moveTo(x-r,y);c.lineTo(x+r,y);c.moveTo(x,y-r);c.lineTo(x,y+r);
+      }c.stroke();commands++;
+      const stroke=(path,fill,colour,width=2.5)=>{
+        if(fill){c.fillStyle=fill;c.fill(path);commands++;}
+        c.strokeStyle=colour;c.lineWidth=width;c.stroke(path);commands++;
+      };
+      // World coordinates become one continuous, rounded outline, including arms.
+      // Anatomy uses the same contact-plane map as the hero's feet and top marker.
+      if(!e.hit) {
+        const point=(x,y)=>[cx+(z+x)*kx,cy-y*k];
+        const path=new Path2D();
+        const move=(x,y)=>path.moveTo(...point(x,y)),line=(x,y)=>path.lineTo(...point(x,y));
+        const curve=(a,b,d,f,g,j)=>path.bezierCurveTo(...point(a,b),...point(d,f),...point(g,j));
+        move(-1.1,0);curve(-1.3,2,-1.05,5,-1.12,7.6);
+        curve(-3.5,7.5,-3.7,8.4,-3.65,10);line(-3.6,13.4);
+        curve(-3.6,14.5,-2.25,14.5,-2.25,13.4);line(-2.25,10.2);
+        curve(-2.2,9.5,-1.5,9.6,-1.12,9.7);line(-1.08,22.8);
+        curve(-1.05,24.4,1.15,24.4,1.12,22.8);line(1.1,15.4);
+        curve(1.7,15.3,2.5,15.5,2.5,16.1);line(2.48,19.3);
+        curve(2.45,20.5,3.85,20.4,3.83,19.2);line(3.8,15.6);
+        curve(3.8,13.5,2.6,13.1,1.08,13.2);curve(.97,9,1.3,4,1.1,0);path.closePath();
+        // Three cheap stroke layers give neon edge light without shadowBlur.
+        stroke(path,'#163c43','#2b777c',9);stroke(path,null,cyan,3.2);
+        c.save();c.clip(path);
+        c.strokeStyle=lime;c.lineWidth=1.7;c.beginPath();
+        for(let i=0;i<3;i++) {
+          const x=-.66+i*.63;c.moveTo(...point(x,.2));
+          c.bezierCurveTo(...point(x+.23,7),...point(x-.24,16),...point(x,23.4));
+        }
+        for(let i=0;i<18;i++) {
+          const y=i*1.34+.5,x=i%2?.75:-.8;
+          c.moveTo(...point(x-.17,y-.12));c.lineTo(...point(x+.16,y+.13));
+          c.moveTo(...point(x-.13,y+.03));c.lineTo(...point(x+.2,y+.28));
+        }c.stroke();commands++;c.restore();
+        // Attached face: its eyes and elastic mouth live below the real top.
+        const surprise=smooth((e.visualHeight-16)/8);
+        for(const side of [-1,1]) {
+          const [x,y]=point(side*.48,22.5);
+          c.fillStyle=lime;c.beginPath();c.ellipse(x,y,kx*.29,k*(.29+surprise*.09),0,0,Math.PI*2);c.fill();
+          c.fillStyle=ink;c.beginPath();c.ellipse(x-kx*.06,y+k*.04,kx*.11,k*.13,0,0,Math.PI*2);c.fill();commands+=2;
+        }
+        const [mx,my]=point(0,21.65);c.fillStyle=ink;c.strokeStyle=lime;c.lineWidth=1.5;c.beginPath();
+        c.ellipse(mx,my,kx*.38,k*(.10+surprise*.28),0,0,Math.PI*2);c.fill();c.stroke();commands+=2;
       }
-      this.organic(-.78,21.1-surprise*.3,z,.22,.18+surprise*1.1,.62,[29,47,72]);
-      const scale=Math.max(1,12/k);
-      // The echo tape is at most 240 scalar frames. Rewind samples it backwards.
+      // A thin scribbled floor scrolls below the camera, rather than shrinking the world.
+      if(cy<h+8){c.strokeStyle='#7762b0';c.lineWidth=2;c.beginPath();c.moveTo(0,cy+5);c.bezierCurveTo(w*.3,cy+2,w*.7,cy+9,w,cy+3);c.stroke();commands++;}
+      const unit=Math.min(h*.065,w*.105,54);
+      const hero=(height,travel,opacity=1)=>{
+        const x=cx+travel*.45*kx,y=cy-height*k;
+        c.save();c.translate(x,y);c.scale(unit,unit);c.globalAlpha=opacity;
+        // One authored silhouette connects tail, haunch, neck, snout and head.
+        const body=new Path2D('M -.55 -.45 C -1.05 -.5 -1.36 -.94 -1.42 -1.42 C -.91 -1.08 -.65 -1.22 -.29 -1.18 C -.28 -1.65 -.02 -1.88 .27 -1.94 C .18 -2.57 .61 -2.67 1.16 -2.49 C 1.46 -2.42 1.63 -2.04 1.51 -1.77 L .73 -1.7 C .86 -1.39 .64 -1.05 .45 -.84 C .17 -.47 -.22 -.35 -.55 -.45 Z');
+        stroke(body,'#793b92','#593f8b',.18);stroke(body,null,pink,.065);
+        const belly=new Path2D('M .48 -1.62 C .60 -1.26 .31 -.81 -.17 -.72 C -.51 -.64 -.65 -.78 -.7 -.86');
+        stroke(belly,null,cyan,.06);
+        const stride=Math.sin(e.pose*10)*(s.reducedMotion?.08:.17);
+        const legs=new Path2D();legs.moveTo(-.47,-.58);legs.quadraticCurveTo(-.64,-.22,-.48-stride,-.04);legs.lineTo(-.14-stride,-.04);
+        legs.moveTo(.17,-.6);legs.quadraticCurveTo(.39,-.30,.27+stride,-.06);legs.lineTo(.6+stride,-.06);
+        stroke(legs,null,ink,.23);stroke(legs,null,cyan,.095);
+        const arm=new Path2D('M .54 -1.28 Q .85 -1.12 .94 -1.36 L 1.11 -1.28');
+        stroke(arm,null,ink,.16);stroke(arm,null,pink,.065);
+        c.fillStyle=cyan;c.beginPath();c.ellipse(.84,-2.18,.22,.25,-.12,0,Math.PI*2);c.fill();
+        c.fillStyle=ink;c.beginPath();c.ellipse(.92,-2.17,.085,.13,0,0,Math.PI*2);c.fill();
+        c.fillStyle='#fff6b9';c.beginPath();c.arc(.94,-2.22,.035,0,Math.PI*2);c.fill();commands+=3;
+        const grin=new Path2D('M .91 -1.88 Q 1.18 -1.92 1.43 -1.86');stroke(grin,null,cyan,.035);
+        const hatch=new Path2D('M -.39 -.99 L -.22 -1.14 M -.23 -.91 L -.06 -1.06 M .36 -2.35 L .46 -2.42 M -.92 -1.03 L -.8 -1.13');stroke(hatch,null,pink,.032);
+        c.restore();return {left:x-1.53*unit,right:x+1.72*unit,top:y-2.72*unit,bottom:y+.08*unit};
+      };
       const tape=e.history,index=e.phase==='rewind'?Math.floor((1-e.rewindPosition)*(tape.length-1)):tape.length-1;
       if(['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
-        const frame=tape[Math.max(0,index-n*6)];
-        this.opacity=.12+(3-n)*.08;
-        this.dino(s,{y:frame[0],z:frame[2]*.45-n*.65*(e.phase==='rewind'?1-e.rewindPosition:1),scale,lod:true,color:[93,148,159]});
+        const f=tape[Math.max(0,index-n*6)];hero(f[0],f[2]-n*.8,.08+(3-n)*.05);
       }
-      this.opacity=1;this.layer=4;this.hero=true;
-      // Feet/pose reverse too, without reversing simulation time or replaying input.
-      const presentation={...s,distance:e.pose*3,player:{...s.player,grounded:e.phase==='rewind' || e.phase==='payoff'}};
-      const boost=e.recoilAge<.45?Math.cos(e.recoilAge*18)*Math.exp(-e.recoilAge*7)*(s.reducedMotion?.2:1):0;
-      this.dino(presentation,{y:e.visualHeight,z:e.visualZ*.45,scale,boost});this.hero=false;
       const puffs=e.phase==='rewind'?[e.puff]:s.effects;
-      for(const effect of puffs)if(effect && effect.age<.65) {
-        const t=effect.age/.65,bounce=s.reducedMotion?0:Math.sin(t*Math.PI)*.35;
-        this.opacity=(1-t)*.85;
-        const color=[[204,150,204],[242,185,99],[133,199,184]][effect.seed%3];
-        for(let n=0;n<3;n++) {
-          const size=(.65+Math.sin(t*Math.PI*.7)*1.1)*(n===1?1.15:.85)*scale;
-          this.organic(-.5,effect.height+(.8-n*.15-t*.45+bounce)*scale,effect.z-(.6+n*.5+t*1.5)*scale,
-            size,size,size*1.15,color);
-        }
+      for(const puff of puffs)if(puff && puff.age<.65) {
+        const t=puff.age/.65,x=cx+puff.z*kx-unit*(1.1+t),y=cy-puff.height*k-unit*.6;
+        c.save();c.translate(x,y);c.scale(unit*(.35+t*.6),unit*(.35+t*.6));c.globalAlpha=(1-t)*.65;
+        const cloud=new Path2D('M -1 0 C -1.6 -.7 -.8 -1.3 -.3 -.9 C .2 -1.5 1 -.9 .8 -.4 C 1.6 0 .8 .8 .3 .5 C -.3 1.2 -1 .7 -1 0 Z');
+        stroke(cloud,'#302351',puff.seed%2?cyan:pink,.08);c.restore();
       }
-      this.opacity=1;
+      const bounds=hero(e.visualHeight,e.visualZ);
+      this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:bounds};
+      return commands;
     }
     rewards(s,groundOnly=false) {
       // Brief, bounded world-space rings; no screen-space flashes or particle pool.
@@ -903,10 +961,11 @@
         for(let i=0;i<source.length;i++)Object.assign(items[i]||(items[i]={}),source[i]);
         items.length=source.length;
       }
-      out.player=s.player;out.obstacles=[];
+      out.player=s.player;out.obstacles=[];out.extreme=s.extreme?{...s.extreme}:null;
     }
     renderWorld(s,live,medium,target) {
       this.medium=medium;this.opacity=1;
+      if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target),images:0,resolution:[target.canvas.width,target.canvas.height]};
       const w=this.w,h=this.h,pixel=medium==='pixel-8'||medium==='pixel-16';
       // Integer nearest-neighbour expansion happens in BACKING pixels, not CSS pixels.
       const step=Math.max(2,Math.ceil(Math.max(target.canvas.width,target.canvas.height)/480));
@@ -932,8 +991,7 @@
       }
       if(this.medium==='ai-gouache')this.paintedSky(c);
       this.faces.length = 0;this.cost=0;this.gameplay=false;
-      if(live.scene==='extreme')this.extremeWorld(live);
-      else {this.world(s); this.gameplayWorld(live);}
+      this.world(s);this.gameplayWorld(live);
       // Ground/decal passes avoid average-depth floor polygons cutting through feet.
       // Above-ground meshes retain stable camera-space painter ordering.
       this.faces.sort((a,b)=>a.layer-b.layer || b.depth-a.depth || a.order-b.order);
@@ -996,6 +1054,8 @@
       const ease=1-Math.exp(-dt/ .18);
       this.visual.bend=mix(this.visual.bend,s.scene==='dream'?1.6+s.morph*.8:0,ease);
       this.visual.lift=mix(this.visual.lift,s.scene==='desktop'?s.morph*.24:0,ease);
+      // EXTREME has its own ready-time camera entrance, never an old pack projected
+      // through the new contact plane. Its outgoing neon frame still folds normally.
       if(s.mode!=='running' || s.scene==='extreme')this.handoff=null;
       let blend=this.handoff?smooth((s.simTime-this.handoff.start)/this.handoff.duration):1;
       if(['pixel-8','chrome'].includes(this.handoff?.medium)&&desired==='vector-3d'&&s.scene==='extrusion')blend=smooth((s.extrusion-.025)/.22);
@@ -1069,39 +1129,33 @@
         c.fillText('Restoring the dinosaur…',w*.09,h*.36+63);c.restore();
       }
       if(s.scene==='extreme') {
-        const ex=s.extreme,k=this.extremeScale,top=this.cam.cy-ex.targetHeight*k;
+        const ex=s.extreme,top=this.cam.cy-ex.targetHeight*this.extremeScale;
         c.save();c.textAlign='center';
+        c.fillStyle='#191333';c.fillRect(0,h-65,w,65);
+        c.strokeStyle='#ff64d8';c.lineWidth=2;c.beginPath();c.moveTo(15,h-65);c.lineTo(w-15,h-65);c.stroke();
+        c.fillStyle='#caff72';c.font='bold '+(w<450?10:13)+'px ui-monospace, monospace';
+        c.fillText('MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',w/2,h-43);
+        c.fillStyle='#faf2ff';c.font='bold '+(w<450?12:16)+'px ui-monospace, monospace';
+        c.fillText(ex.caption,w/2,h-18);
+        // The actual top is intentionally absent initially. An arrow and the meter
+        // explain the offscreen goal without moving its contact line into view.
+        if(!ex.hit && top>139 && top<h-76) {
+          c.strokeStyle='#caff72';c.lineWidth=1.5;c.setLineDash([5,5]);c.beginPath();
+          c.moveTo(w*.1,top);c.lineTo(w*.9,top);c.stroke();c.setLineDash([]);
+          c.fillStyle='#caff72';c.textAlign='left';c.font='bold 10px ui-monospace, monospace';c.fillText('TOP · 24',18,top-8);
+        }
+        c.fillStyle='#191333';c.fillRect(10,92,w-20,38);
+        c.textAlign='left';c.fillStyle='#60ffeb';c.font='bold '+(w<450?9:11)+'px ui-monospace, monospace';
+        const label=ex.phase==='active'?'TOP ↑ 24 · '+ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/10 TAPS':ex.phase==='payoff'?'TOP NOTCH! · CLEARED':ex.phase==='rewind'?'REWIND ◀◀ · BACK TO THE BEGINNING':'TOP ↑ 24 · EXTREME · WAIT FOR GO';
+        c.fillText(label,18,108);
+        c.fillStyle='#4c376c';c.fillRect(18,118,w-36,4);c.fillStyle='#caff72';c.fillRect(18,118,(w-36)*ex.progress,4);
+        c.fillRect(w-20,115,2,10);
         const puff=ex.phase==='rewind'?ex.puff:s.effects[s.effects.length-1];
         if(puff && puff.age<.5) {
-          const px=clamp(this.cam.cx+puff.z*k-24,38,w-50),py=clamp(this.cam.cy-puff.height*k+22,145,h-90);
-          c.save();c.translate(px,py);c.rotate(s.reducedMotion?0:Math.sin(puff.age*9)*.12);
-          c.globalAlpha=1-puff.age/.5;c.font='bold 12px ui-monospace, monospace';
-          c.lineWidth=4;c.strokeStyle='#fff8e8';c.fillStyle='#714763';
-          const word=['PFFT!','BRRRP!','POOT!'][puff.seed%3];c.strokeText(word,0,0);c.fillText(word,0,0);c.restore();
+          const b=this.stats.extreme.hero;
+          c.globalAlpha=1-puff.age/.5;c.fillStyle='#ff9ce5';c.textAlign='left';c.font='bold 12px ui-monospace, monospace';
+          c.fillText(['PFFT!','BRRRP!','POOT!'][puff.seed%3],Math.max(18,b.left-12),Math.min(h-80,b.bottom+14));
         }
-        if(ex.phase==='payoff') {
-          const t=clamp(ex.time/1.4),x=clamp(this.cam.cx+ex.visualZ*.45*k+60,85,w-85),y=clamp(this.cam.cy-ex.visualHeight*k-12,157,h-110);
-          c.save();c.translate(x,y);
-          const pop=s.reducedMotion?1:1+Math.sin(Math.min(1,t*4)*Math.PI)*.16;c.scale(pop,pop);
-          c.fillStyle='#fff1a8';c.strokeStyle='#c37a4b';c.lineWidth=2;c.beginPath();
-          for(let i=0;i<20;i++){const a=i*Math.PI/10,r=i%2?31:40;c.lineTo(Math.cos(a)*r*1.7,Math.sin(a)*r*.65);}c.closePath();c.fill();c.stroke();
-          c.fillStyle='#354d43';c.font='bold 14px ui-monospace, monospace';c.fillText('TOP NOTCH!',0,5);
-          for(let i=0;i<8;i++) {
-            const a=i*Math.PI/4,travel=s.reducedMotion?0:Math.sin(t*Math.PI/2)*20;
-            c.save();c.translate(Math.cos(a)*(63+travel),Math.sin(a)*(28+travel));c.rotate(a+t*(s.reducedMotion?0:3));
-            c.fillStyle=['#cf7195','#499e87','#e9b34e'][i%3];c.fillRect(-3,-3,6,6);c.restore();
-          }c.restore();
-        }
-        c.fillStyle='#fff8e8';c.fillRect(0,h-65,w,65);
-        c.fillStyle='#263c3b';c.font='bold '+(w<450?11:14)+'px ui-monospace, monospace';
-        c.fillText('MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',w/2,h-43);
-        c.font='bold 18px ui-monospace, monospace';
-        c.fillText(ex.phase==='ready'?'EXTREME · GET READY':ex.caption=== 'REWIND ◀◀'?'REWIND ◀◀':ex.caption,w/2,h-18);
-        c.strokeStyle='#b34f43';c.lineWidth=1.5;c.setLineDash([5,5]);c.beginPath();
-        c.moveTo(w*.12,top);c.lineTo(w*.88,top);c.stroke();c.setLineDash([]);
-        c.font='bold 10px ui-monospace, monospace';c.textAlign='right';c.fillText('CLEAR THIS HEIGHT',w*.9,top-7);
-        c.textAlign='left';c.fillText(ex.phase==='active'?ex.ttc.toFixed(1)+'s · '+ex.acceptedPresses+'/10 TAPS · KEEP CLIMBING':ex.phase==='payoff'?'CLEARED · FASTER!':ex.phase==='rewind'?'BACK TO THE BEGINNING':'ONE CACTUS. KEEP TAPPING.',18,110);
-        c.fillStyle='#d1d6c7';c.fillRect(18,118,w-36,4);c.fillStyle='#47866b';c.fillRect(18,118,(w-36)*ex.progress,4);
         c.restore();
       }
       }

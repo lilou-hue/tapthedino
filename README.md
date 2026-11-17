@@ -30,7 +30,8 @@ score submissions.
 Before play, the page is the Chromium offline error page and its own runner
 (`opening.js`): idle blinks, first jump, the 0.4 s widening intro, obstacle-free
 start, cacti, distance meter, clouds, night mode in dark theme and original
-press/hit/reached samples. The runner is stepped at a fixed 60 Hz from `game.js`,
+press/reached samples (contacts now use the shared sad cue). The runner is stepped
+at a fixed 60 Hz from `game.js`,
 using Chromium's 1x/2x sprites at its own integer pixel ratio. It cannot start
 before its sprite sheet loads: until then the static idle crop remains and input
 is ignored. Failed sheets are retried, then the other density is used.
@@ -76,6 +77,10 @@ full-height and continue behind the hero to the near/offscreen boundary (`z > -8
 a bounded render-only tail survives stage transitions without old collisions or
 second scoring. Small geometry fixes join cactus arms, ground the trunk and pixel
 feet, keep squash details attached, and separate the vector jaw from the head.
+Actual contacts instead consume that exact cactus immediately, reset the combo,
+and play one short procedural descending minor wah, including protected contacts.
+They cannot later clear or collide again. This also applies to Chrome's free first
+attempt and the fatal EXTREME giant; clean jumps still retain their full-height tail.
 
 World speed increases by 14 percentage points per lap, capped at **1.70×**:
 8, 9.12, 10.24, …, 13.6 world units/s. Approach time also decreases from 2.4 s to
@@ -85,7 +90,15 @@ above 1.4 s; stampede keeps its six fair hazards and fixed musical timing.
 
 After coalescence, **EXTREME** replaces the old gentle finale:
 
-- 1.5 s ready cue, then a fixed 6 s climb toward a 24-unit cactus.
+- 1.5 s explicit GET READY counter, then a fixed 6 s climb toward a 24-unit cactus.
+- A dedicated **neon-doodle** medium: indigo paper, continuous cyan/lime cactus,
+  connected magenta/cyan hero, stable hatches, stars and comic boost clouds.
+  The close camera starts with the actual top offscreen, follows the ascent and
+  recorded rewind height, and reserves space for the head and readable HUD.
+- Forward WAV encouragement starts near the end of READY and in early ACTIVE,
+  never payoff. The first height-24 crossing permanently stops forward speech
+  and switches to a truthful contact-pending caption; ten presses and contact
+  are still required. A later height dip cannot restart speech.
 - At least ten fresh presses **and** reaching height 24 are required at contact.
   Steady moderate tapping (about 2.5 Hz) works; a late burst cannot teleport upward.
 - A miss is fatal at contact, regardless of hearts or recovery. Success awards
@@ -95,11 +108,15 @@ After coalescence, **EXTREME** replaces the old gentle finale:
 - Comic boost puffs, the cactus face and rewind use bounded geometry/effect pools
   and a maximum 240-frame scalar presentation tape, not replayed gameplay.
 
-Farts occur **only during EXTREME**; ordinary world jumps beep. Chrome phases use
-only Chromium press/hit/reached samples, with no extra jump beep or clear chime.
-Optional locally hosted speech has caption fallback. Mute, pause and restart
-cancel queued cues and stop tracked voices, including Chrome buffer sources;
-resuming resynchronizes the score rather than replaying entry stingers.
+Farts occur **only during EXTREME**; ordinary world jumps beep. Chrome phases retain
+Chromium press/reached samples, with no extra jump beep or clear chime; collisions
+use the same sad impact as every other medium. Optional locally hosted speech has
+caption fallback and never queues a missed cue after loading or unmuting.
+On death, music and other voices stop immediately while only the already-playing
+380 ms impact may finish; the context goes quiet within 430 ms. Impact has reserved,
+unducked voice capacity. Mute, hide, pause, banking and restart cancel tracked
+voices and pending work; no death cue creates or resumes a cold audio context.
+Resuming resynchronizes the score rather than replaying entry stingers.
 
 ## Development and inspection
 
@@ -114,7 +131,8 @@ There is no service worker or offline cache to install or invalidate.
 
 Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 5 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
-EXTREME state, and opening/handoff geometry. `?debug` additionally exposes
+EXTREME state (forward cue times and first crossing), impact audio counts,
+close-camera/top/hero bounds, and opening/handoff geometry. `?debug` additionally exposes
 `advance(seconds)` and `freeze(true)` for stepped captures; `?debug&seed=N` makes
 the runner's randomness reproducible. Seed/stepping/freezing mark the run and all
 later restarts in the same page assisted: no best writes, banking or end card.

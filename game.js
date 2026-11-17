@@ -212,7 +212,7 @@
     audio.setExtreme(scene==='extreme');
     s.previousScene=s.scene;s.scene=scene;s.sceneTime=0;s.sceneDistance=0;
     // Only cleared geometry survives a phrase boundary; it has no collision/score path.
-    s.clearedTail.push(...s.obstacles.filter(o=>o.clear).map(o=>({...o})));
+    s.clearedTail.push(...s.obstacles.filter(o=>o.clear && !o.hit).map(o=>({...o})));
     if(s.clearedTail.length>8)s.clearedTail.splice(0,s.clearedTail.length-8);
     s.obstacles.length=0;s.pending=0;
     // A phrase-ending landing still gets its brief response through the handoff.
@@ -242,8 +242,8 @@
       Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
       s.worldRoll=0;s.rollFrom=0;s.rollTarget=0;s.morph=0;s.morphTarget=0;
       s.extreme={phase:'ready',time:0,targetHeight:24,ttc:6,acceptedPresses:0,
-        firstPress:null,progress:0,cleared:false,contact:false,cactusZ:24,
-        caption:'MASH SPACE / TAP TO CLIMB • MISS = GAME OVER',cue:-1,
+        firstPress:null,firstCross:null,forwardCues:[],hit:false,progress:0,cleared:false,contact:false,cactusZ:24,
+        caption:'GET READY · 1.5s · TAPS START AT GO',cue:-1,
         rewindPosition:0,history:[[0,24,0,0,10,10,0,0,0]],sample:0,visualHeight:0,visualZ:0,pose:0,
         boostAt:-100,recoilAge:10,puff:null};
       audio.stopVoices();
@@ -320,7 +320,11 @@
       o.z-=s.speed*dt;
       if(!o.resolved && !o.hit && Math.abs(o.z)<.40 && s.player.height<.58) {
         // Even protected contacts are misses, never a later clear from this hazard.
-        o.hit=true;
+        o.hit=true;o.resolved=true;o.clear=false;
+        s.combo=0;s.multiplier=1;audio.impact();
+        // Filter instead of splicing an iterated array; adjacent contacts still resolve.
+        s.obstacles=s.obstacles.filter(item=>item!==o);
+        s.clearedTail=s.clearedTail.filter(item=>item.id!==o.id);
         if(s.recovery<=0) {
           s.health=Math.max(0,s.health-1);s.recovery=RECOVERY;s.player.stumble=.42;
           if(s.health===0) {finishRun('death');return;}
@@ -347,7 +351,7 @@
       const events=runner.frame();
       if(events.crashed) {
         // The attempt ends visibly, in place. No heart, no deadline, no score write.
-        s.openingCrashes++;s.combo=0;s.multiplier=1;s.pending=0;audio.chrome('hit');
+        s.openingCrashes++;s.combo=0;s.multiplier=1;s.pending=0;audio.impact();
         if(s.lap>1) {
           if(s.recovery<=0){s.health=Math.max(0,s.health-1);s.recovery=RECOVERY;}
           if(s.health===0){finishRun('death');return;}
@@ -461,7 +465,9 @@
     const e=s.extreme,p=s.player;e.time+=dt;
     if(e.phase!=='rewind')e.recoilAge=s.sceneTime-e.boostAt;
     if(e.phase==='ready') {
-      if(e.time>=1.5){e.phase='active';e.time=0;e.cue=-1;}
+      e.caption='GET READY · '+Math.max(0,1.5-e.time).toFixed(1)+'s · TAPS START AT GO';
+      if(e.time>=1.2 && e.cue<0){e.cue=0;forwardCue('click-it',1.35);}
+      if(e.time>=1.5){e.phase='active';e.time=0;e.cue=0;e.caption='GO! Click it!';}
       return;
     }
     if(e.phase==='active') {
@@ -470,16 +476,23 @@
       if(p.height===0){p.velocity=0;p.grounded=true;}
       e.ttc=Math.max(0,6-e.time);e.cactusZ=4*e.ttc;
       e.progress=clamp(p.height/e.targetHeight);
+      if(e.firstCross===null && p.height>=e.targetHeight){e.firstCross=s.simTime;audio.stopForward();}
+      if(e.firstCross===null) {
+        const cue=e.time>=1.65?2:e.time>=.55?1:0;
+        if(cue>e.cue){e.cue=cue;forwardCue(cue===1?'click-harder':'click-it',1.35);}
+      }
+      // A height crossing is not a win, and cannot re-arm speech after a dip.
+      e.caption=e.firstCross!==null?'KEEP GOING · CONTACT PENDING':e.time<.55?'GO! Click it!':e.time<1.65?'Click harder!':e.time<2.6?'Click it!':'KEEP TAPPING · REACH THE TOP';
       if(e.time>=6 && !e.contact) {
         e.contact=true;
         if(e.acceptedPresses<10 || e.firstPress===null || p.height<e.targetHeight) {
-          s.health=0;finishRun('death');return;
+          e.hit=true;e.caption='MISSED · RUN OVER';s.combo=0;s.multiplier=1;audio.impact();s.health=0;finishRun('death');return;
         }
         // Legacy finalInput is an alias for this genuine contact proof, not a fabricated jump.
         e.cleared=true;s.extremeCleared=true;s.finalInput=true;s.success=1;
         // Exactly one capped bonus, never points per press or a fallback success.
         s.score+=150;s.lapScore+=150;s.earned++;s.lapEarned++;
-        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;
+        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;e.caption='CLEARED · TOP NOTCH!';audio.stopForward();
       }
     } else if(e.phase==='payoff') {
       const t=clamp(e.time/1.4);
@@ -503,10 +516,11 @@
     e.sample+=dt;
     if(e.sample>=1/30){e.sample-=1/30;if(e.history.length<240)e.history.push([e.visualHeight,e.cactusZ,e.visualZ,e.pose,e.recoilAge,e.puff?.age??10,e.puff?.height??0,e.puff?.z??0,e.puff?.seed??0]);}
     if(e.phase==='rewind'){e.caption='REWIND ◀◀';return;}
-    const times=e.phase==='payoff'?[0,.48,.86,1.15]:[0,1.6,3,4,4.8,5.45];
-    let cue=0;for(let i=0;i<times.length;i++)if(e.time>=times[i])cue=i;
-    if(cue!==e.cue){e.cue=cue;e.caption=cue===1?'Click harder!':'Click it!';
-      audio.announce(cue===1?'click-harder':'click-it',e.phase==='payoff'?1.15+cue*.16:1+cue*.055);}
+  }
+  function forwardCue(name,rate) {
+    const e=s.extreme;
+    e.forwardCues.push({name,time:s.simTime,height:s.player.height,phase:e.phase});
+    audio.announce(name,rate);
   }
   function finishRun(reason) {
     if(s.mode!=='running' || s.reported) return;
@@ -516,7 +530,7 @@
     s.player.buffer=0;s.player.velocity=0;s.pending=0;s.recovery=0;
     if(reason==='death') {s.combo=0;s.multiplier=1;}
     userPaused=false;pausePanel.hidden=true;pauseButton.hidden=true;
-    audio.pause();bankState();healthState();
+    if(reason==='death')audio.terminal();else audio.pause();bankState();healthState();
     if(s.debugAssisted) return;
     s.reported=true;
     const score=s.score, previousBest=s.previousBest;
@@ -660,12 +674,12 @@
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
       simTime:s.simTime,beat:s.beat,playerHeight:s.player.height,player:{...s.player},
       nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:s.echoes,
-      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
+      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
       entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:s.windows.length,towers:s.city.length,echoes:s.echoes,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
-      art:{style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
+      art:{extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
         transition:{...renderer.stats.transition},
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},

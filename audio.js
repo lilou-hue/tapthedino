@@ -5,6 +5,7 @@
   class DinoAudio {
     constructor(muted) {
       this.muted = muted; this.context = null; this.voices = new Set();
+      this.impactSoundCount=0;this.terminalUntil=0;this.terminalTimer=null;this.forwardCues=[];
       this.samples={};this.pendingChrome=null;this.chromePlayed=0;
       // Fetch bytes ahead of the first gesture; decoding waits for the user's AudioContext.
       this.sampleBytes=Object.fromEntries(['press','hit','reached'].map(name=>[name,fetch('assets/chrome-'+name+'.mp3?v=1').then(r=>r.ok?r.arrayBuffer():null).catch(()=>null)]));
@@ -32,6 +33,7 @@
       this.pendingChrome=null;
       const sources=[...this.voices].filter(v=>v.kind==='chrome');
       if(sources.length>=3){try{sources[0].stop();}catch{}this.voices.delete(sources[0]);}
+      if(this.voices.size>=38)return false;
       const source=a.createBufferSource();source.buffer=buffer;source.kind='chrome';source.connect(a.destination);
       this.voices.add(source);source.onended=()=>{this.voices.delete(source);source.disconnect();};
       source.start();this.chromePlayed++;return true;
@@ -56,7 +58,7 @@
             this.noise=a.createBuffer(1,a.sampleRate*.3,a.sampleRate);
             const data=this.noise.getChannelData(0);let seed=127;
             for(let i=0;i<data.length;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;data[i]=seed/2147483648-1;}
-            this.makeFarts();this.loadClips();this.loadSamples();
+            this.makeFarts();this.makeImpact();this.loadClips();this.loadSamples();
           }
           await this.setPlaying(true);
           if(epoch!==this.epoch || this.muted)return;
@@ -68,6 +70,47 @@
         } catch {if(epoch===this.epoch){this.failed=true;this.pendingFarts=0;this.pendingJump=null;}}
       })().finally(()=>{if(this.unlockEpoch===epoch)this.unlockPromise=null;});
       return this.unlockPromise;
+    }
+    makeImpact() {
+      // A short descending minor wah, deterministic and peak-bounded before mixing.
+      const a=this.context,b=a.createBuffer(1,Math.ceil(a.sampleRate*.38),a.sampleRate),d=b.getChannelData(0);
+      let p=0,q=0;
+      for(let i=0;i<d.length;i++) {
+        const t=i/a.sampleRate,u=t/.38,f=310*Math.pow(85/310,u);
+        p+=2*Math.PI*f/a.sampleRate;q+=2*Math.PI*f*1.189207/a.sampleRate;
+        const envelope=Math.min(1,t/.008)*Math.pow(1-u,1.7);
+        d[i]=envelope*(Math.sin(p)*.42+Math.sin(q)*.22+Math.sin(p*2)*.08*(1-u));
+      }
+      this.impactBuffer=b;
+    }
+    impact() {
+      // Contacts never unlock a cold/suspended context or queue a future surprise.
+      const a=this.context;
+      if(!a || a.state!=='running' || !this.wantPlaying || this.muted || !this.impactBuffer)return false;
+      if(this.voices.size>=40) {
+        const old=[...this.voices].find(v=>v.kind==='impact');
+        if(!old)return false;
+        try{old.stop();}catch{}this.voices.delete(old);
+      }
+      const o=a.createBufferSource(),g=a.createGain();o.buffer=this.impactBuffer;o.kind='impact';
+      g.gain.value=.72;o.connect(g);g.connect(this.master); // Unducked, with two reserved slots.
+      this.voices.add(o);o.onended=()=>{this.voices.delete(o);o.disconnect();g.disconnect();};
+      o.start();this.impactSoundCount++;return true;
+    }
+    terminal() {
+      // Invalidate pending unlock/sample work but let only an already-audible hit finish.
+      this.epoch++;this.pendingChrome=null;this.pendingFarts=0;this.pendingJump=null;this.scene='';
+      for(const v of this.voices)if(v.kind!=='impact'){try{v.stop();}catch{}this.voices.delete(v);}
+      this.speechVoices=[];this.fartVoices=[];this.fadingFart=null;
+      clearTimeout(this.terminalTimer);
+      const tail=!this.muted && this.context?.state==='running' && [...this.voices].some(v=>v.kind==='impact');
+      this.terminalUntil=tail?performance.now()+430:0;
+      this.setPlaying(false).catch(()=>{});
+      if(tail){const epoch=this.epoch;this.terminalTimer=setTimeout(()=>{if(epoch===this.epoch)this.pause();},430);}
+    }
+    stopForward() {
+      for(const v of this.speechVoices){try{v.stop();}catch{}this.voices.delete(v);}
+      this.speechVoices=[];
     }
     makeFarts() {
       const a=this.context;this.fartBuffers=[];this.reverseFarts=[];
@@ -100,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=44',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=45',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);
@@ -114,7 +157,7 @@
     }
     stopVoices(all=false) {
       for(const voice of this.voices) {
-        if(!all && ['fart','jump','chrome'].includes(voice.kind))continue;
+        if(!all && ['fart','jump','chrome','impact'].includes(voice.kind))continue;
         try {voice.stop();} catch { /* Already ended. */ }
         this.voices.delete(voice);
       }
@@ -127,13 +170,14 @@
       // Serialize delayed browser resume/suspend operations. Each queued reconciliation
       // reads the latest intent, so an old pause cannot undo a legitimate new unlock.
       this.transport=(this.transport||Promise.resolve()).catch(()=>{}).then(()=>{
-        const playing=this.wantPlaying&&!this.muted;
+        const playing=(this.wantPlaying || this.terminalUntil>performance.now())&&!this.muted;
         if(playing && a.state==='suspended')return a.resume();
         if(!playing && a.state==='running')return a.suspend();
       });
       return this.transport;
     }
     pause() {
+      clearTimeout(this.terminalTimer);this.terminalUntil=0;
       this.epoch++;this.pendingChrome=null;this.pendingFarts=0;this.pendingJump=null;this.stopVoices(true);this.scene='';
       this.setPlaying(false).catch(()=>{});
     }
@@ -156,7 +200,7 @@
           old.gain.gain.setTargetAtTime(.0001,a.currentTime,.002);old.stop(a.currentTime+.008);
         } else {try{old.stop();}catch{}this.voices.delete(old);}
       }
-      if(this.voices.size>=40)return;
+      if(this.voices.size>=38)return;
       const o=a.createBufferSource(),g=a.createGain();o.buffer=buffer;o.playbackRate.value=rate;
       g.gain.value=volume;o.gain=g;o.kind=kind;o.connect(g);g.connect(kind==='fart'?this.fartBus:this.master);
       list.push(o);this.voices.add(o);
@@ -175,7 +219,8 @@
       if(this.sample(this.fartBuffers?.[this.fartsPlayed%5],'fart',[1,.9,1.08,1,.96][this.fartsPlayed%5],.64))this.fartsPlayed++;
     }
     announce(name,rate=1) {
-      if(!this.extreme)return;
+      if(!this.extreme || !this.wantPlaying)return;
+      if(!name.endsWith('-reverse')){this.forwardCues.push({name,time:this.context?.currentTime??null});if(this.forwardCues.length>24)this.forwardCues.shift();}
       if(this.sample(this.clips[name],'speech',rate,1.25))this.speechCount++;
     }
     rewind() {
@@ -249,7 +294,7 @@
         this.entryPlayed=false;this.anticipation=false;
       }
       const a=this.context;
-      if(!a || this.muted || a.state!=='running')return;
+      if(!a || !this.wantPlaying || this.muted || a.state!=='running')return;
       const speaking=this.speechVoices.length>0;
       this.music.gain.setTargetAtTime(speaking?.28:1,a.currentTime,.04);
       this.fartBus.gain.setTargetAtTime(speaking?.48:1,a.currentTime,.025);
@@ -320,7 +365,7 @@
         }
       }
     }
-    get snapshot() { return { chromePlayed:this.chromePlayed,chromeVoices:[...this.voices].filter(v=>v.kind==='chrome').length,pendingChrome:!!this.pendingChrome,available:!!this.context, state:this.context?.state||'uncreated', muted:this.muted, arrangement:this.arrangement, voices:this.voices.size, fartVoices:this.fartVoices.length+(this.fadingFart&&this.voices.has(this.fadingFart)?1:0), speechVoices:this.speechVoices.length, jumpsPlayed:this.jumpsPlayed, pendingJump:this.pendingJump!==null, fartCount:this.fartCount, fartsPlayed:this.fartsPlayed, speechCount:this.speechCount, pendingFarts:this.pendingFarts, desiredPlaying:this.wantPlaying, clipStatus:this.clipStatus, failed:this.failed, transportBeat:this.context?(this.context.currentTime-this.origin)/BEAT:0 }; }
+    get snapshot() { return { impactSoundCount:this.impactSoundCount,terminalTail:this.terminalUntil>performance.now(),forwardCues:this.forwardCues.map(c=>({...c})),chromePlayed:this.chromePlayed,chromeVoices:[...this.voices].filter(v=>v.kind==='chrome').length,pendingChrome:!!this.pendingChrome,available:!!this.context, state:this.context?.state||'uncreated', muted:this.muted, arrangement:this.arrangement, voices:this.voices.size, fartVoices:this.fartVoices.length+(this.fadingFart&&this.voices.has(this.fadingFart)?1:0), speechVoices:this.speechVoices.length, jumpsPlayed:this.jumpsPlayed, pendingJump:this.pendingJump!==null, fartCount:this.fartCount, fartsPlayed:this.fartsPlayed, speechCount:this.speechCount, pendingFarts:this.pendingFarts, desiredPlaying:this.wantPlaying, clipStatus:this.clipStatus, failed:this.failed, transportBeat:this.context?(this.context.currentTime-this.origin)/BEAT:0 }; }
   }
   window.DinoAudio=DinoAudio;
 })();

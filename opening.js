@@ -157,7 +157,7 @@
     }
     recoverContact() {
       // Later-lap session damage is owned by game.js, not Chromium's free-attempt reset.
-      const o=this.o;o.obstacles.shift();o.playing=true;o.crashed=false;o.crashMs=0;
+      const o=this.o;o.playing=true;o.crashed=false;o.crashMs=0;
       this.resetTrex();
     }
     // --- Simulation ------------------------------------------------------------------
@@ -306,6 +306,8 @@
       else {delta=o.activated?dt:0;this.horizonUpdate(delta,hasObstacles,this.dark);}
       const first=o.obstacles[0];
       if(hasObstacles&&first&&this.collides(first)) {
+        // Consume this exact contact once; recovery must not remove its neighbour.
+        first.hit=true;first.passed=true;o.obstacles=o.obstacles.filter(item=>item!==first);
         o.playing=false;o.crashed=true;o.crashMs=0;o.crashes++;
         this.setStatus('crashed');t.shown=ANIM.crashed.frames[0];
         Object.assign(o.panel,{frame:0,timer:0,shownFrames:0});
