@@ -143,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=49',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=50',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);
@@ -276,25 +276,25 @@
     clear(plain,scene,big=false,variant=0) {
       if(!this.context || !this.wantPlaying || this.muted || this.context.state!=='running') return;
       const t=this.context.currentTime+.008;
-      const note=({track:587,corkscrew:440,jelly:698,dream:659,moon:880})[scene]||587;
+      const note=({track:587,corkscrew:740,jelly:698,dream:659,desktop:880,stampede:440,moon:880})[scene]||587;
       this.tone(t,plain?520:note,.10,.04,'triangle');
-      if(!plain) this.tone(t+.09,note*1.5,.22,.035,'sine');
+      if(!plain) this.tone(t+.09,note*1.5,.22,.035,scene==='desktop'?'triangle':'sine');
       // A distinct landing cadence per medium, below the existing music headroom.
       // Offline keeps its single dry beep; these are earned accents, never input rewards.
       if(!plain) {
         if(scene==='track')this.tone(t,110,.14,.075,'sine',55);
+        else if(scene==='corkscrew'){this.hiss(t,.045,.035,2200);this.tone(t+.035,185,.09,.05,'triangle',92.5);}
         else if(scene==='dream')this.tone(t+.16,note*.75,.48,.025,'sine');
+        else if(scene==='desktop')this.tone(t+.045,note*2,.045,.018,'square');
+        else if(scene==='stampede'){this.tone(t,98,.19,.085,'sine',49);this.hiss(t+.025,.07,.03,1700);}
       }
       if(scene==='jelly') {
         this.tone(t,180,.15,.035,'sine',75);
         this.tone(t+.09,110,.20,.020,'sine',240);
       }
-      if(big) {
-        const moon=scene==='moon',ink=scene==='corkscrew',soft=scene==='dream';
-        for(const [i,ratio] of [1,1.5,1.25,2].entries())
-          this.tone(t+i*(moon?.11:ink?.055:.075),note*ratio*(variant===2?.5:1),moon?.48:soft?.30:.16,soft?.016:moon?.019:.026,ink?'triangle':'sine');
-        if(ink)this.hiss(t+.06,.045,.020,2800);
-      }
+      // The original earned big-clear arpeggio; moon's is slower and airier.
+      if(big)for(const [i,ratio] of [1,1.25,1.5,2].entries())
+        this.tone(t+i*(scene==='moon'?.11:.045),note*ratio*(variant===2?.5:1),scene==='moon'?.48:.32,scene==='moon'?.022:.035,'sine');
     }
     payoff() {
       const a=this.context;if(!a || this.muted)return;
@@ -317,7 +317,7 @@
       this.fartBus.gain.setTargetAtTime(speaking?.48:1,a.currentTime,.025);
       if(s.scene==='extreme'){this.scene=s.scene;return;}
       if(s.scene==='collapse') {this.scene=s.scene;return;}
-      if(s.mode!=='running' || ['rupture','offline','breath'].includes(s.scene)) {
+      if(s.mode!=='running' || ['rupture','offline','crash','coalesce','breath'].includes(s.scene)) {
         if(this.scene!==s.scene)this.stopVoices();this.scene=s.scene;return;
       }
       // One transport: both geometry pulses and scheduled notes use simTime / BEAT.
@@ -327,55 +327,48 @@
         if(changed)this.stopVoices();this.scene=s.scene;
         this.origin=a.currentTime-s.simTime;this.step=Math.ceil(s.simTime/(BEAT/2));
       }
-      const duration=({track:14,dream:12})[s.scene];
+      const duration=({track:14,corkscrew:11,dream:12,desktop:11,stampede:16})[s.scene];
       const progress=duration?Math.min(1,Math.max(s.sceneTime/duration,s.success/Math.max(1,s.target))):0;
       // Two finite arrangement lifts, including on lap one. Later laps add at most one.
-      const drive=s.scene==='track';
-      this.arrangement=drive?Math.min(2,(progress>.45?1:0)+(progress>.78?1:0)+(s.lap>1&&s.combo>=3?1:0)):s.sceneTime>1&&['corkscrew','jelly','moon'].includes(s.scene)?Math.min(2,Math.floor(s.combo/3)):0;
+      const drive=['track','corkscrew','desktop','stampede'].includes(s.scene);
+      this.arrangement=drive?Math.min(2,(progress>.45?1:0)+(progress>.78?1:0)+(s.lap>1&&s.combo>=3?1:0)):0;
       if(duration && progress>.78 && s.success>0 && !this.anticipation) {
         this.anticipation=true;
-        const t=a.currentTime+.012,root=({track:146.83,dream:164.81})[s.scene];
-        // A short pickup leaves space for the next scene.
+        const t=a.currentTime+.012,root=({track:146.83,corkscrew:185,dream:164.81,desktop:220,stampede:110})[s.scene];
+        // A short pickup leaves space for the next scene, especially the silent crash.
         for(let i=0;i<3;i++)this.tone(t+i*BEAT/4,root*[2,3,4][i],s.scene==='dream'?.3:.09,s.scene==='dream'?.018:.025,'sine');
       }
       if(!this.entryPlayed) {
         this.entryPlayed=true;
-        if(s.scene==='extrusion') {
+        if(['extrusion','stampede'].includes(s.scene)) {
           const downbeat=this.origin+Math.ceil(s.simTime/BEAT)*BEAT;
           this.tone(Math.max(a.currentTime+.005,downbeat),155,.26,.24,'sine',38);
-        } else if(s.scene==='track') {
-          const t=a.currentTime+.008,note=146.83;
+        } else if(['track','corkscrew','desktop'].includes(s.scene)) {
+          const t=a.currentTime+.008,note=({track:146.83,corkscrew:185,desktop:220})[s.scene];
           this.tone(t,note,.16,.06,'triangle',note*.5);
-          this.tone(t+.06,note*4,.12,.025,'sine');
-        } else if(['corkscrew','jelly','moon'].includes(s.scene)) {
-          const t=a.currentTime+.008,note=({corkscrew:220,jelly:261.63,moon:440})[s.scene];
-          this.tone(t,note,s.scene==='moon'?.65:.22,.035,s.scene==='corkscrew'?'triangle':'sine',note*(s.scene==='jelly'?2:1));
+          this.tone(t+.06,note*4,.12,.025,s.scene==='desktop'?'square':'sine');
+        } else if(['jelly','moon'].includes(s.scene)) {
+          const t=a.currentTime+.008,note=({jelly:261.63,moon:440})[s.scene];
+          this.tone(t,note,s.scene==='moon'?.65:.22,.035,'sine',note*(s.scene==='jelly'?2:1));
           this.tone(t+.13,note*1.5,.3,.02,'sine');
         }
       }
       let scheduled=0;
       while(this.origin+this.step*BEAT/2<a.currentTime+.12 && scheduled++<4) {
         const n=this.step++,t=Math.max(a.currentTime+.005,this.origin+n*BEAT/2);
+        // Sparse lunar pads and a boing bass for jelly; no streak-driven syncopation.
         if(s.scene==='moon') {
-          if(n%8===0)this.tone(t,[220,261.63,329.63,293.66][Math.floor(n/8)%4],BEAT*5,this.arrangement?.026:.035,'sine');
+          if(n%8===0)this.tone(t,[220,261.63,329.63,293.66][Math.floor(n/8)%4],BEAT*5,.035,'sine');
           if(n%16===4)this.tone(t,880,.65,.016,'sine',660);
-          // Syncopation rather than louder pads; at most two short orbit notes.
-          if(this.arrangement && n%8===5)this.tone(t,660,.28,.014,'sine',880);
-          if(this.arrangement===2 && n%16===11)this.tone(t,1320,.18,.010,'sine',990);
           continue;
         }
-        if(s.scene==='corkscrew' || s.scene==='jelly') {
-          const jelly=s.scene==='jelly',note=(jelly?130.81:110)*[1,1.5,1.25,2][Math.floor(n/4)%4];
-          if(n%4===0)this.tone(t,note,jelly?.24:.11,this.arrangement?.045:.06,jelly?'sine':'triangle',jelly?note*2:note*.8);
+        if(s.scene==='jelly') {
+          const note=130.81*[1,1.5,1.25,2][Math.floor(n/4)%4];
+          if(n%4===0)this.tone(t,note,.24,.06,'sine',note*2);
           if(n%8===2)this.tone(t,note*3,.13,.022,'sine');
-          if(this.arrangement && n%4===3)this.tone(t+BEAT/8,note*(jelly?2.5:4),.085,.019,jelly?'sine':'triangle',note*(jelly?1.5:3));
-          if(this.arrangement===2 && n%8===5) {
-            this.tone(t,note*2,.095,.018,'sine',jelly?note*3:null);
-            if(!jelly)this.hiss(t,.025,.012,4200);
-          }
           continue;
         }
-        const dream=s.scene==='dream';
+        const dream=s.scene==='dream',desk=s.scene==='desktop',pack=s.scene==='stampede';
         const variation=s.variant||0;
         const bass=[73.42,73.42,87.31,65.41][(Math.floor(n/8)+variation)%4];
         if(variation && n%4===variation)this.tone(t,bass*(variation===1?8:6),BEAT*.6,.022,'sine');
@@ -386,15 +379,23 @@
           this.hiss(t,dream?.18:.13,dream?.035:.09,1300);this.tone(t,175,.08,.045,'triangle');
         }
         if(!dream || n%4===2)this.hiss(t,.025,n%2?.025:.018,6500);
-        if(n%(dream?4:2)===0)this.tone(t+(dream?0:.032),bass*(n%8===6?2:1),BEAT*(dream?1.5:.52),.078,'triangle');
+        if(n%(dream?4:2)===0)this.tone(t+(dream?0:.032),bass*(n%8===6?2:1),desk?.10:BEAT*(dream?1.5:.52),.078,'triangle');
         if(drive && this.arrangement>0 && n%8===5)this.tone(t+.018,bass*2,.085,.045,'triangle');
         if(drive && this.arrangement===2 && n%8===7) {
           this.tone(t+.02,bass,.09,.055,'triangle');
           this.hiss(t+BEAT/4,.022,.018,7200);
         }
+        if(s.scene==='corkscrew' && n%8===6)this.tone(t,220,.07,.035,'triangle',110);
+        if(desk && n%8===2)this.tone(t,bass*8,.035,.012,'square');
         if(n%8===0)for(const ratio of [2,2.4,3])this.tone(t,bass*ratio,BEAT*(dream?6:3.1),dream?.038:.025,'sine');
         if(dream && n%4===0)this.tone(t,bass*[4,6,4.8,3][Math.floor(n/4)%4],.7,.038,'sine');
-        else if(n%4===3)this.tone(t,bass*[4,6,4.8,3][Math.floor(n/4)%4],.16,.025,'triangle');
+        else if(n%4===3 || (s.scene==='corkscrew' && n%2===1))this.tone(t,bass*[4,6,4.8,3][Math.floor(n/4)%4],desk?.065:.16,.025,'triangle');
+        if(pack) {
+          const build=Math.min(1,s.sceneTime/16);
+          this.tone(t,bass*[4,4.8,6,8][n%4],.13,.018+build*.028,'triangle');
+          if(n%8===0)for(const ratio of [4,4.8,6])this.tone(t,bass*ratio,BEAT*3,.018+build*.01,'triangle');
+          if(s.sceneTime>12 && n%2)this.hiss(t,.07,.025,2500);
+        }
       }
     }
     get snapshot() { return { impactSoundCount:this.impactSoundCount,terminalTail:this.terminalUntil>performance.now(),forwardCues:this.forwardCues.map(c=>({...c})),chromePlayed:this.chromePlayed,chromeVoices:[...this.voices].filter(v=>v.kind==='chrome').length,pendingChrome:!!this.pendingChrome,available:!!this.context, state:this.context?.state||'uncreated', muted:this.muted, arrangement:this.arrangement, voices:this.voices.size, fartVoices:this.fartVoices.length+(this.fadingFart&&this.voices.has(this.fadingFart)?1:0), speechVoices:this.speechVoices.length, jumpsPlayed:this.jumpsPlayed, pendingJump:this.pendingJump!==null, fartCount:this.fartCount, fartsPlayed:this.fartsPlayed, speechCount:this.speechCount, pendingFarts:this.pendingFarts, desiredPlaying:this.wantPlaying, clipStatus:this.clipStatus, failed:this.failed, transportBeat:this.context?(this.context.currentTime-this.origin)/BEAT:0 }; }

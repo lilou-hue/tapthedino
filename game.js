@@ -49,12 +49,18 @@
       target:6,next:'dream',cells:6,intervals:[1.45],members:[0,.65],
       bodyHeight:BODY_HEIGHT,ceilingClearance:.8,ceilingHeight:BODY_HEIGHT+.8,
       hint:'TAP TO BOUNCE · TAP AGAIN TO DROP'},
-    dream:{...NORMAL,target:6,next:'moon',cells:6,intervals:[1.10,1.80,1.10,1.80,1.10],
+    dream:{...NORMAL,target:6,next:'desktop',cells:6,intervals:[1.10,1.80,1.10,1.80,1.10],
       hint:'TWO JUMPS · TAKE A BREATH'},
+    // The original desktop: six earned windows, 9.5/11 s, rhythm row 3.
+    desktop:{...NORMAL,target:6,deadline:11,minimum:9.5,next:'crash',rhythm:3,firstSpawn:.15},
     moon:{...NORMAL,jump:6,gravity:5,buffer:0,target:6,next:'extreme',cells:3,
       intervals:[3],members:[0,.75],hint:'ONE FLOAT · TWO CACTI'}
   };
-  const physics = () => PHRASES[s.scene] || NORMAL;
+  // The original stampede: a fixed 16 s build, spawner open through 13.5 s,
+  // nine-clear target and explicit rhythm row 4 (not an array-position index).
+  const STAMPEDE = {...NORMAL,target:9,rhythm:4,build:16,spawnUntil:13.5,firstSpawn:.15};
+  const stage = scene => PHRASES[scene] || (scene==='stampede'?STAMPEDE:null);
+  const physics = () => stage(s.scene) || NORMAL;
   const clamp = (n,a=0,b=1) => Math.max(a,Math.min(b,n));
   const smooth = n => (n=clamp(n),n*n*(3-2*n));
   const stored = key => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -92,9 +98,9 @@
       mode:'idle', scene:'offline', previousScene:'offline', sceneTime:0, simTime:0, beat:0,
       speed:WORLD_SPEED, speedMultiplier:1, approachTTC:APPROACH, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
       health:MAX_HEALTH, maxHealth:MAX_HEALTH, recovery:0,
-      lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0,
+      lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0, waveTime:-100,
       earned:0, fallback:0, transitions:[], projectionBlend:0, extrusion:0,
-      obstacles:[], clearedTail:[], monuments:[], pending:0, nextSpawn:2.7, serial:0, phraseSpawn:0,
+      obstacles:[], clearedTail:[], monuments:[], windows:[], city:[], echoes:1, cascadeCount:0, pending:0, nextSpawn:2.7, serial:0, phraseSpawn:0,
       sceneDistance:0, worldRoll:0,rollFrom:0,rollTarget:0,rollTime:1,rollRest:0,spawnStopped:false,stageConfig:null, morph:0, morphTarget:0, lastJumpTime:-100, finalInput:false, finalJumpTime:0, finalJumpSerial:null,
       dropAt:0, extreme:null, extremeCleared:false, inputCount:0,
       player:{height:0,velocity:0,grounded:true,buffer:0,stumble:0,jumps:0,slam:false},
@@ -136,10 +142,10 @@
     s.speedMultiplier=Math.min(1.8,1+.18*(s.lap-1));s.speed=WORLD_SPEED*s.speedMultiplier;
     s.approachTTC=Math.max(.95,APPROACH/s.speedMultiplier);
     Object.assign(s,{success:0,target:2,lapEarned:0,lapScore:0,nextSpawn:.65,
-      pending:0,combo:0,multiplier:1,morph:0,morphTarget:0,
+      pending:0,combo:0,multiplier:1,morph:0,morphTarget:0,echoes:1,cascadeCount:0,
       finalInput:false,finalJumpTime:0,finalJumpSerial:null,extreme:null,extremeCleared:false,dropAt:0,
-      impact:0,burst:0,lastJumpTime:-100});
-    s.obstacles.length=0;s.monuments.length=0;s.effects.length=0;
+      impact:0,burst:0,waveTime:-100,lastJumpTime:-100});
+    s.obstacles.length=0;s.monuments.length=0;s.windows.length=0;s.city.length=0;s.effects.length=0;
     Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0,stumble:0});
     s.clearedTail.length=0;s.chromeJump=false;s.ticks=0;s.flatAnchor=null;
     enter('offline','lap');
@@ -152,7 +158,9 @@
     s.mode='running';audio.unlock();
   }
   function action() {
-    if(paused || document.hidden || s.mode==='complete' || ['collapse','breath'].includes(s.scene)) return;
+    // Non-play beats (the desktop crash and the coalescence) take no new jumps, so
+    // no airborne state is carried across their timed exits into another gravity.
+    if(paused || document.hidden || s.mode==='complete' || ['crash','coalesce','collapse','breath'].includes(s.scene)) return;
     // Like Chromium, the runner cannot start before its sprites exist (no invisible hazards).
     if(s.mode==='idle') {if(!runner.ready)return;begin();}
     if(audio.context?.state!=='running') audio.unlock();
@@ -192,7 +200,7 @@
       p.buffer=0;
       if(!p.slam){
         p.slam=true;p.velocity=cfg.slamVelocity;audio.stageAction('slam');
-        s.effects.push({age:0,z:0,scene:s.scene,slam:true,seed:s.inputCount,tier:Math.min(3,1+Math.floor(s.combo/3))});
+        s.effects.push({age:0,z:0,scene:s.scene,slam:true,seed:s.inputCount});
         if(s.effects.length>8)s.effects.shift();
       }
       return;
@@ -250,7 +258,7 @@
     s.clearedTail.push(...s.obstacles.filter(o=>o.clear && !o.hit).map(o=>({...o})));
     if(s.clearedTail.length>8)s.clearedTail.splice(0,s.clearedTail.length-8);
     s.obstacles.length=0;s.pending=0;s.phraseSpawn=0;s.spawnStopped=false;
-    s.stageConfig=PHRASES[scene]||null;
+    s.stageConfig=stage(scene);
     if(s.player.grounded){s.player.buffer=0;s.player.slam=false;}
     s.worldRoll=0;s.rollFrom=0;s.rollTarget=0;s.rollTime=1;s.rollRest=0;
     // A phrase-ending landing still gets its brief response through the handoff.
@@ -263,11 +271,21 @@
     } else if(scene==='extrusion') {
       s.monuments=[{z:28,side:-1,scale:7,age:0},{z:43,side:1,scale:9,age:0}];
     } else if(PHRASES[scene]) {
-      s.success=0;s.target=PHRASES[scene].target;s.nextSpawn=scene==='track'?.65:1;
+      s.success=0;s.target=PHRASES[scene].target;s.nextSpawn=scene==='track'?.65:PHRASES[scene].firstSpawn??1;
       s.morphTarget=0;
       if(scene==='track'){s.flatAnchor=null;if(s.revealAt===null)s.revealAt=s.simTime;}
+      if(scene==='desktop'){s.windows.length=0;s.morph=0;}
+      // After the coalescence, the moon starts from one body: no echoes, city or windows.
+      if(scene==='moon'){s.echoes=1;s.city.length=0;s.windows.length=0;}
+    } else if(scene==='crash') {
+      s.target=0;audio.stopVoices();
+    } else if(scene==='stampede') {
+      s.success=0;s.target=STAMPEDE.target;s.nextSpawn=STAMPEDE.firstSpawn;s.echoes=1;s.waveTime=-100;
+      s.city=Array.from({length:24},(_,i)=>({id:i,z:18+i*9,brokenAt:null,height:5+(i%4)*2}));
+    } else if(scene==='coalesce') {
+      s.target=0;s.success=0;audio.stopVoices();
     } else if(scene==='extreme') {
-      // Straight from the grounded painted exit into the existing 1.5 s READY.
+      // Straight from the grounded moon exit into the existing 1.5 s READY.
       s.finalInput=false;s.extremeCleared=false;s.target=1;s.success=0;
       Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
       s.morph=0;s.morphTarget=0;s.monuments.length=0;s.effects.length=0;s.impact=0;s.burst=0;
@@ -286,7 +304,8 @@
     } else if(scene==='breath') {
       s.extrusion=0;s.projectionBlend=0;audio.stopVoices();
     }
-    const names={extrusion:'01 · The other side',track:'01 · The other side',corkscrew:'02 · Inside out',jelly:'03 · Soft landing',dream:'04 · Something remembers',moon:'05 · A little space'};
+    const names={extrusion:'01 · The other side',track:'01 · The other side',corkscrew:'02 · Inside out',jelly:'03 · Soft landing',
+      dream:'04 · Something remembers',desktop:'05 · Dinosaur OS',stampede:'06 · Every one of us',moon:'07 · A little space'};
     chapter.textContent=names[scene]||'';
     root.dataset.spatial=String(!['offline','rupture','breath'].includes(scene));
     root.dataset.scene=scene;
@@ -294,6 +313,18 @@
   function successfulTransformation() {
     if(s.scene==='track') growMonument();
     else if(s.scene==='dream') s.morphTarget=s.success;
+    else if(s.scene==='desktop') {
+      // Each earned desktop clear opens a stack of five windows (bounded pool).
+      s.morphTarget=s.success;
+      for(let i=0;i<5;i++) s.windows.push({x:(i%2?-1:1)*(3.7+i*.6),y:i*.55,z:8+i*2.4,age:-i*.09,seed:s.success*5+i});
+      if(s.windows.length>24)s.windows.splice(0,s.windows.length-24);
+    } else if(s.scene==='stampede') {
+      // Earned echoes double the pack (cap 32/40) and break the next three towers.
+      s.echoes=Math.min(s.variant?40:32,2**s.success);s.waveTime=s.simTime;
+      const targets=s.city.filter(t=>t.z>0 && t.brokenAt===null).slice(0,3);
+      targets.forEach((t,i)=>{t.brokenAt=s.simTime+i*(s.echoes===32?.95:.22);});
+      s.cascadeCount+=targets.length;
+    }
   }
   function growMonument() {
     const side=s.success%2?-1:1;
@@ -321,7 +352,7 @@
     // replay: the audio accent is fired here, never by polling the burst state.
     if(!quiet) {
       if(big)s.burst=1.5;
-      s.effects.push({age:0,z:0,big,scene:s.scene,seed:s.earned,tier:Math.min(3,1+Math.floor(s.combo/3))});
+      s.effects.push({age:0,z:0,big,scene:s.scene,seed:s.earned});
       if(s.effects.length>8)s.effects.shift();
       audio.clear(false,s.scene,big,s.variant);
     }
@@ -443,7 +474,7 @@
       s.heroFrame=RUN_FRAMES[s.heroIndex];
     }
     // The suspense arrests forward travel, not the meaning of a jump input.
-    if(!['rupture','extreme','collapse','breath'].includes(s.scene)) {
+    if(!['rupture','crash','coalesce','extreme','collapse','breath'].includes(s.scene)) {
       s.distance+=s.speed*dt;s.sceneDistance+=s.speed*dt;
     }
     if(s.scene==='corkscrew') {
@@ -454,6 +485,9 @@
     s.morph+=(s.morphTarget-s.morph)*Math.min(1,dt*3.8);
     for(const m of s.monuments) {m.age+=dt;if(s.scene==='track')m.z-=s.speed*dt*.44;}
     s.monuments=s.monuments.filter(m=>m.z>-14);
+    for(const w of s.windows) {w.age+=dt;if(s.scene==='desktop')w.z-=s.speed*dt*.48;}
+    s.windows=s.windows.filter(w=>w.z>-12);
+    if(s.scene==='stampede')for(const tower of s.city)tower.z-=s.speed*dt;
     if(s.scene==='rupture') {
       if(s.simTime>=s.dropAt) enter('extrusion');
     } else if(s.scene==='extrusion') {
@@ -479,6 +513,18 @@
         if(s.scene==='corkscrew' && s.rollTime===1 && s.rollTarget!==fullTurn)turnWorld(fullTurn);
         if(s.scene!=='corkscrew' || (s.rollTime===1 && s.rollRest>=phrase.settledDuration))enter(phrase.next,earned?'earned':'resolved');
       }
+    } else if(s.scene==='crash') {
+      if(s.sceneTime>=2.2 && p.grounded) enter('stampede');
+    } else if(s.scene==='stampede') {
+      // A fixed musical build, never lengthened by misses. The deadline closes the
+      // spawner only; every presented cactus still resolves before a grounded exit.
+      if(s.sceneTime>=STAMPEDE.spawnUntil)s.spawnStopped=true;
+      obstacles(dt);
+      if(s.mode!=='running') return;
+      const resolved=s.spawnStopped && s.obstacles.every(o=>o.resolved) && !s.pending;
+      if(s.sceneTime>=STAMPEDE.build && resolved && p.grounded) enter('coalesce',s.success>=s.target?'earned':'resolved');
+    } else if(s.scene==='coalesce') {
+      if(s.sceneTime>=2.2 && p.grounded) enter('moon');
     } else if(s.scene==='extreme') {
       updateExtreme(dt);
     } else if(s.scene==='collapse') {
@@ -699,17 +745,17 @@
   function snapshot() {
     const next=s.obstacles.find(o=>!o.resolved),a=s.flatAnchor;
     return freeze({
-      version:6,speed:s.speed,speedMultiplier:s.speedMultiplier,approachTTC:s.approachTTC,distance:s.distance,userPaused,focusPaused,clearedTail:s.clearedTail.map(o=>({...o})),health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
+      version:7,speed:s.speed,speedMultiplier:s.speedMultiplier,approachTTC:s.approachTTC,distance:s.distance,userPaused,focusPaused,clearedTail:s.clearedTail.map(o=>({...o})),health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
       effectCounts:{puffs:s.effects.filter(e=>e.puff).length,impacts:s.effects.length,bursts:s.effects.filter(e=>e.big).length,transitions:s.transitions.length},mode:s.mode,scene:s.scene,sceneTime:s.sceneTime,success:s.success,target:s.target,
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
       simTime:s.simTime,beat:s.beat,playerHeight:s.player.height,player:{...s.player},
-      nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:1,
-      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,rollTarget:s.rollTarget,rollProgress:s.rollTime,floorNormal:[Math.sin(s.worldRoll),-Math.cos(s.worldRoll)],physics:{...physics()},stagePattern:{spawned:s.phraseSpawn,stopped:s.spawnStopped,pending:s.pending},morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,activeDuration:s.extreme.activeDuration,minPresses:s.extreme.minPresses,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:0,
-      entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:0,towers:0,echoes:1,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
+      nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:s.echoes,
+      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,rollTarget:s.rollTarget,rollProgress:s.rollTime,floorNormal:[Math.sin(s.worldRoll),-Math.cos(s.worldRoll)],physics:{...physics()},stagePattern:{spawned:s.phraseSpawn,stopped:s.spawnStopped,pending:s.pending},morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,activeDuration:s.extreme.activeDuration,minPresses:s.extreme.minPresses,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
+      entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:s.windows.length,towers:s.city.length,brokenTowers:s.city.filter(t=>t.brokenAt!==null).length,echoes:s.echoes,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
-      art:{chaos:{...renderer.stats.chaos,lastBurst:renderer.stats.chaos?.lastBurst?{...renderer.stats.chaos.lastBurst}:null},extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
+      art:{extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
         transition:{...renderer.stats.transition},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},
