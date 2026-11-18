@@ -104,6 +104,19 @@ gathers the pack and city into one giant; the Moon then starts from a single bod
 never in the Moon or fold. The sculpted current hero is used only for Jelly, Moon
 and the fold bridge; every other medium has its original hero.
 
+Two cameras change the point of view, not the course. Night moves from the
+extrusion framing into the voxel dinosaur’s head over 0.90 s. It looks along
++z with a fixed lens and pitch; its eye rises by exactly the jump height. The
+own body leaves view, then the incoming ink hero is revealed on the pullback.
+Stampede moves below the original orange runway in 0.70 s. Its transparent
+centre and solid cut edges show the cel soles lifting away and landing toward a
+stationary, upward-facing lens. The pack and city stay overhead for the whole
+build. Coalescence rises back to its original framing within 1.20 s. Neither
+view changes the take-off line, contacts, speed, jump arc, or stage clock.
+Reduced motion keeps both physical viewpoints and the real jump height: neither
+camera adds idle sway, head bob, impact shake or a pulsing lens. The existing
+reduced-motion scenery, landing response and shorter medium dissolve still apply.
+
 Kept fixes from the refined version: decoded/cached painted sky with an
 aspect-aware crop, foot-anchored stage framing, a single hero in every
 cross-medium handoff (the outgoing world fades without its hero; only the page
@@ -207,7 +220,13 @@ There is no service worker or offline cache to install or invalidate.
 Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 7 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
 EXTREME state (forward cue times and first crossing), impact audio counts,
-close-camera/top/hero bounds, and opening/handoff geometry. `?debug` additionally exposes
+close-camera/top/hero bounds, and opening/handoff geometry. During the two
+perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
+one unit along the viewing direction (`target`), `mode`, and `blend`. In these
+shots each live obstacle probe also has camera-space foot depth `viewZ` and
+`visibleBounds`: viewport-clipped bounds of the emitted cactus geometry, or
+`null` outside view. They exclude the shadow and take-off line and do not claim
+to measure occlusion by other objects. `?debug` additionally exposes
 `advance(seconds)` and `freeze(true)` for stepped captures; `?debug&seed=N` makes
 the runner's randomness reproducible. Seed/stepping/freezing mark the run and all
 later restarts in the same page assisted: no best writes, banking or end card.

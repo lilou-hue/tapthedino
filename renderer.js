@@ -154,8 +154,8 @@
         stampede:[-.14,24,10,1,11,.47],coalesce:[-.12,24,8,3,14,.47],
         jelly:[-.34,17,6.4,1,6,.44,.36],moon:[-.32,19,6,1,6,.46,.36],collapse:[-.30,15,5.5,1,6,.45,.5]})[scene]||base;
     }
-    camera(s) {
-      this.s=s;this.hero=false;
+    camera(s,nightEyeY) {
+      this.s=s;this.hero=false;this.pov=null;
       if(s.scene==='extreme') {
         this.neonCamera(s);return;
       }
@@ -207,6 +207,26 @@
           this.cam.cy+=mix(this.foldFrom.y,natural[1],k)-moved[1];
         }
       }
+      this.perspective(s,nightEyeY);
+    }
+    perspective(s,nightEyeY) {
+      const c=this.cam,t=s.sceneTime,night=s.scene==='track',ink=s.scene==='corkscrew'&&t<.80,
+        stamp=s.scene==='stampede',rise=s.scene==='coalesce'&&t<1.2;
+      if(!night&&!ink&&!stamp&&!rise)return;
+      const underground=stamp||rise;
+      const k=night?smooth(t/.90):ink?1-smooth(t/.80):stamp?smooth(t/.70):1-smooth(t/1.2);
+      // Night's optical centre sits inside the back of the original box head. A fixed
+      // downward pitch includes the collision strip without bobbing or tracking the cactus.
+      // Ink's incoming lens starts *outside* that head; the live outgoing eye pass
+      // dissolves under the single, normally sized ink hero as the camera pulls away.
+      const eye=underground?[-2.8,-3.6,-2.25]:ink?[-1.8,2.6,-4.4]:[0,nightEyeY??(1.99+s.player.height),.21];
+      const aim=underground?[.12,.2,2.45]:ink?[0,1,1.8]:[0,eye[1]-.97,eye[2]+1];
+      const forward=norm(sub(aim,eye)),focal=underground?Math.min(this.w*.69,this.h*.59):this.h*(ink?.43:.30);
+      c.eye=mixRGB(c.eye,eye,k);c.forward=norm(mixRGB(c.forward,forward,k));
+      c.right=norm(cross(c.forward,[0,1,0]));c.up=cross(c.right,c.forward);
+      c.focal=mix(c.focal,focal,k);c.cx=mix(c.cx,this.w*(underground?.51:.5),k);
+      c.cy=mix(c.cy,this.h*(underground?.53:ink?.52:.635),k);
+      this.pov={mode:underground?'under-road':ink?'eye-pullback':'runner-eye',blend:k,underground};
     }
     footScreen() {
       // Unrotated foot anchor; a floor rotation about this point leaves it fixed.
@@ -240,11 +260,7 @@
       const foot=this.footScreen(),dx=x-foot[0],dy=y-foot[1],co=Math.cos(roll),si=Math.sin(roll);
       return [foot[0]+dx*co-dy*si,foot[1]+dx*si+dy*co];
     }
-    polygon(vertices, color, shade = 1, edge = null, viewed = false, cull = false) {
-      // Leave 600 of the 2600 commands for the hero, nearest hazards, shadow and marker.
-      if (this.cost >= (this.gameplay?2600:this.sceneryLimit)) return null;
-      let v = viewed ? vertices : vertices.map(p => this.view(p));
-      // Clip in camera space before division; geometry can safely pass behind the viewer.
+    clipNear(v) {
       const clipped = [];
       for (let i = 0; i < v.length; i++) {
         const a = v[i], b = v[(i + 1) % v.length], ai = a[2] >= .35, bi = b[2] >= .35;
@@ -254,7 +270,14 @@
           clipped.push(a.map((n, j) => mix(n, b[j], t)));
         }
       }
-      v = clipped;
+      return clipped;
+    }
+    polygon(vertices, color, shade = 1, edge = null, viewed = false, cull = false) {
+      // Leave 600 of the 2600 commands for the hero, nearest hazards, shadow and marker.
+      if (this.cost >= (this.gameplay?2600:this.sceneryLimit)) return null;
+      let v = viewed ? vertices : vertices.map(p => this.view(p));
+      // Clip in camera space before division; geometry can safely pass behind the viewer.
+      v=this.clipNear(v);
       if (v.length < 3) return null;
       const points = v.map(p => this.project(p));
       if (points.every(p => p[0] < -2) || points.every(p => p[0] > this.w + 2) || points.every(p => p[1] < -2) || points.every(p => p[1] > this.h + 2)) return null;
@@ -383,21 +406,25 @@
       // Three projected-size tiers. Big heads get a round contour, distant pack members stay cheap.
       const n=size>100?12:lod?(size>20?6:4):size<18?6:8,rows=size>100?6:lod||size<18?3:4;
       const topology=SOLIDS.get(n+':'+rows),viewed=this.solidView,all=[];
+      let cut=false;
       for(let i=0;i<topology.vertices.length;i++) {
         const p=topology.vertices[i],v=this.view([x+p[0]*sx*.5,y+p[1]*sy*.5,z+p[2]*sz*.5]);
-        if(v[2]<.35)return;
+        if(v[2]<.35){if(!this.pov?.underground)return;cut=true;}
         viewed[i][0]=v[0];viewed[i][1]=v[1];viewed[i][2]=v[2];
-        all.push(this.project(v));
+        all.push(v[2]<.35?null:this.project(v));
       }
-      const facets=[],centerDepth=depth;
+      const facets=[],centerDepth=depth,hullPoints=cut?[]:all;
       for(let f=0;f<topology.facets.length;f++) {
         const indices=topology.facets[f],i=f%n,j=Math.floor(f/n);
         const depth=(viewed[indices[0]][2]+viewed[indices[1]][2]+viewed[indices[2]][2]+viewed[indices[3]][2])/4;
+        let clipped;
+        if(cut){clipped=this.clipNear(indices.map(i=>viewed[i])).map(v=>this.project(v));if(clipped.length<3)continue;hullPoints.push(...clipped);}
         if(depth>centerDepth+.015)continue;
         const shade=ink?(i%3===0?.82:1):j===0?1.13:i<n/2?.83:1;
-        facets.push({points:indices.map(i=>all[i]),depth,color:'rgb('+color.map(v=>Math.round(clamp(v*shade,0,255))).join(',')+')'});
+        facets.push({points:clipped||indices.map(i=>all[i]),depth,color:'rgb('+color.map(v=>Math.round(clamp(v*shade,0,255))).join(',')+')'});
       }
-      const points=all.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+      if(cut&&!facets.length)return;
+      const points=hullPoints.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
       const turn=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
       const half=arr=>{const hull=[];for(const p of arr){while(hull.length>1&&turn(hull[hull.length-2],hull[hull.length-1],p)<=0)hull.pop();hull.push(p);}hull.pop();return hull;};
       const hull=half(points).concat(half(points.slice().reverse()));
@@ -902,9 +929,21 @@
       c[2]=c[2].map(n=>Math.min(255,n+pulse*20));
       const wide=['stampede','ending'].includes(style)?5.8+7.5*smooth((s.echoes-1)/16):5.8;
       this.layer=0;
+      const glass=this.pov?.underground&&['stampede','ending'].includes(style)?(s.scene==='stampede'?1:this.pov.blend):0;
       for(let i=-5;i<26;i++) {
         const z=i*3-s.distance%3;
+        // Back-light the cel figures through the same orange road. Its narrow
+        // solid shoulders and cut edges give the transparent span a thickness.
+        // Keep the near soles and live hazard in the clear cutaway; the pack
+        // and city behind them take the pane's tint, not their gameplay inks.
+        this.layer=glass&&this.cam.eye[1]<0?2.5:0;this.opacity=1-glass*.72;
         this.polygon([[-wide/2,0,z-1.51],[wide/2,0,z-1.51],[wide/2,0,z+1.51],[-wide/2,0,z+1.51]],c[Math.abs(i)%2]);
+        this.opacity=1;this.layer=0;
+        if(glass)for(const side of [-1,1]) {
+          const edge=side*wide/2,lip=edge-side*wide*.105*glass;
+          this.polygon([[lip,0,z-1.5],[edge,0,z-1.5],[edge,0,z+1.5],[lip,0,z+1.5]],c[Math.abs(i)%2]);
+          this.polygon([[edge,0,z-1.5],[edge,-.18*glass,z-1.5],[edge,-.18*glass,z+1.5],[edge,0,z+1.5]],[224,105,69]);
+        }
         const light=this.clearWave(s,z),drive=this.build(s)*(.5+.5*Math.sin(z*.6-s.beat*Math.PI*2));
         for(const side of [-1,1])this.box(side*wide*.5,.016,z,.055+light*.14+drive*.025,.035,3.01,c[2]);
         if(style==='desktop') {
@@ -1016,10 +1055,19 @@
         }
       }
     }
+    volumeRect(x,y,z,rx,ry,rz) {
+      // The ordinary sprite rect assumes an upright billboard. From under the
+      // road a muzzle, tail or toe can cover the next cactus before its torso does.
+      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=Infinity;
+      for(const p of CUBE){const v=this.view([x+p[0]*rx,y+p[1]*ry,z+p[2]*rz]);
+        if(v[2]<.35)continue;
+        const [u,w]=this.project(v);left=Math.min(left,u);right=Math.max(right,u);top=Math.min(top,w);bottom=Math.max(bottom,w);depth=Math.min(depth,v[2]);}
+      return left===Infinity?null:{left,right,top,bottom,depth};
+    }
     pack(s,gather=0) {
       const positions=[-.95,.95,-2.4,2.4,-3.85,3.85];
       const next=this.live?.obstacles?.find(o=>!o.resolved&&o.z>-.4);
-      const hazard=next&&gather<.01?this.spriteRect(0,0,next.z,1.4,1.6,[.5,.95]):null;
+      const under=this.pov?.underground, hazard=next&&gather<.01?under?this.volumeRect(0,.74,next.z,1.48,1.48,.48):this.spriteRect(0,0,next.z,1.4,1.6,[.5,.95]):null;
       for(let i=1;i<Math.min(40,s.echoes);i++) {
         const row=Math.floor((i-1)/6),col=(i-1)%6;
         const delay=(row+1)*.06, jumpAge=s.simTime-s.lastJumpTime-delay;
@@ -1034,8 +1082,8 @@
         // nearest live hazard fades; pack count, layout and style are unchanged.
         let alpha=1;
         if(hazard) {
-          const r=this.spriteRect(x,y,z,1.7*scale,2.5*scale,[.5,.95]);
-          if(r&&r.depth<hazard.depth)alpha=Math.max(.18,smooth(Math.max(r.left-hazard.right,hazard.left-r.right,r.top-hazard.bottom,hazard.top-r.bottom)/18));
+          const r=under?this.volumeRect(x,y+1.17*scale,z-.35*scale,1.35*scale,2.34*scale,2.85*scale):this.spriteRect(x,y,z,1.7*scale,2.5*scale,[.5,.95]);
+          if(r&&r.depth<hazard.depth)alpha=Math.max(under?.10:.18,smooth(Math.max(r.left-hazard.right,hazard.left-r.right,r.top-hazard.bottom,hazard.top-r.bottom)/18));
         }
         this.opacity=alpha;
         this.dino(s,{x,y,z,scale,lod:true,color:i%3?[61,115,133]:[235,242,210]});
@@ -1068,6 +1116,24 @@
       else if(s.scene==='coalesce')this.ending(s);
       this.rewards(s);
     }
+    visibleBounds(start) {
+      // Emitted geometry is already near-clipped. Intersect straddling polygons
+      // with the four viewport edges too: clamping their AABB can invent a hit
+      // at a screen corner. These bounds say in-frustum, not unoccluded pixels.
+      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+      for(let i=start;i<this.faces.length;i++)for(const face of this.faces[i].group||[this.faces[i]]) {
+        let p=face.points;
+        for(let side=0;p.length&&side<4;side++) {
+          const axis=side>>1,hi=side%2,bound=hi?(axis?this.h:this.w):0;
+          const inside=q=>hi?q[axis]<=bound:q[axis]>=bound;
+          if(p.every(inside))continue;
+          const out=[];let a=p[p.length-1],ai=inside(a);
+          for(const b of p){const bi=inside(b);if(ai!==bi){const t=(bound-a[axis])/(b[axis]-a[axis]);out.push([mix(a[0],b[0],t),mix(a[1],b[1],t)]);}if(bi)out.push(b);a=b;ai=bi;}p=out;
+        }
+        for(const [x,y] of p){left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
+      }
+      return left<right&&top<bottom?{left,right,top,bottom}:null;
+    }
     gameplayWorld(s,showHero=true) {
       this.gameplay=true;this.layer=3;
       const modern=this.modern,painted=this.medium==='ai-gouache',warm=painted||this.medium==='gouache-fallback';
@@ -1087,7 +1153,11 @@
           for(const side of [-1,1])this.box(side*1.45,.035,z+.36,.09,.035,.72,c);
         }
       }
-      if(showHero && s.projectionBlend>.05) {
+      const eyeEntry=this.pov?.mode==='runner-eye',under=this.pov?.underground;
+      const exposure=eyeEntry?1-smooth((this.pov.blend-.43)/.32):1;
+      // The floor shadow returns with above-road clearance, not on a mode switch.
+      const shadow=under?smooth(this.cam.eye[1]/2):1;
+      if(showHero&&exposure>0&&shadow>0 && s.projectionBlend>.05) {
         if(modern) {
           const lift=1/(1+s.player.height*.55);
           if(s.extrusion>.05)this.softShadow(0,-.05,.5*(.7+lift*.3),.95*(.7+lift*.3),[3,4,14],.62*lift*smooth(s.extrusion));
@@ -1096,10 +1166,14 @@
           const lift=1/(1+s.player.height*.55);
           if(painted)this.softShadow(.18,.12,.6*(.7+lift*.3),.72*(.7+lift*.3),[112,70,54],.42*lift);
           else this.softShadow(0,-.05,.5*(.7+lift*.3),.95*(.7+lift*.3),[118,72,56],.4*lift);
-        } else if(s.extrusion>.05)this.box(0,.025,-.1,.95+s.player.height*.16,.025,1.6+s.player.height*.12,[42,48,69]);
+        } else if(s.extrusion>.05){
+          this.opacity=shadow*exposure;this.box(0,.025,-.1,.95+s.player.height*.16,.025,1.6+s.player.height*.12,[42,48,69]);this.opacity=1;
+        }
       }
       this.layer=4;
-      if(showHero) {
+      if(showHero&&exposure===0)this.stats.hero=null;
+      if(showHero&&exposure>0) {
+        this.opacity=exposure;
         // Continuity probe: where the one hero's feet project this frame, and at what scale.
         const hv=this.view([0,s.player.height,0]);
         if(hv[2]>.35){const hp=this.project(hv);this.stats.hero={x:hp[0],y:hp[1],pxPerUnit:this.cam.focal/mix(24,Math.max(.35,hv[2]),this.cam.b),medium:this.medium};}
@@ -1107,7 +1181,7 @@
         this.hero=true;
         if(this.medium==='pixel-16')this.windowBox(0,s.player.height,0,1.6,2.05,0,true);
         else this.dino(s);
-        this.hero=false;
+        this.hero=false;this.opacity=1;
         const bounds={left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity};
         for(let i=first;i<this.faces.length;i++) {
           const face=this.faces[i];face.hero=true;
@@ -1127,7 +1201,7 @@
           this.opacity=1;
         }
       }
-      this.stats.obstacleProbes=s.obstacles.map(o=>({id:o.id,kind:o.kind,z:o.z,
+      const probes=s.obstacles.map(o=>({id:o.id,kind:o.kind,z:o.z,
         foot:this.project(this.view([0,0,o.z])),
         top:this.project(this.view([0,o.kind==='ceiling'?o.ceilingHeight:1.4,o.z]))}));
       for(const o of [...s.obstacles,...(s.clearedTail||[])]) {
@@ -1137,13 +1211,18 @@
           if(s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
         } else {
           this.layer=3;
-          if(s.extrusion>.05)this.polygon(Array.from({length:12},(_,i)=>{const a=i*Math.PI/6;return [Math.cos(a)*.48,.025,o.z+Math.sin(a)*.30];}),painted?[183,142,119]:[42,48,69]);
+          this.opacity=shadow;
+          if(shadow&&s.extrusion>.05)this.polygon(Array.from({length:12},(_,i)=>{const a=i*Math.PI/6;return [Math.cos(a)*.48,.025,o.z+Math.sin(a)*.30];}),painted?[183,142,119]:[42,48,69]);
+          this.opacity=1;
         }
-        this.layer=4;
+        this.layer=4;const first=this.faces.length;
         if(o.kind==='ceiling')this.canopy(o);
         else if(this.medium==='pixel-16')this.windowBox(0,0,o.z,1.8,1.25,o.id,false,true);
         else this.cactus(o.z,1,1,0,0,modern?null:s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
+        if(this.pov&&s===this.scenery){const probe=probes.find(p=>p.id===o.id);
+          if(probe){probe.viewZ=this.view([0,0,o.z])[2];probe.visibleBounds=this.visibleBounds(first);}}
       }
+      if(s===this.scenery)this.stats.obstacleProbes=probes;
       // Original media keep their earned ground rings (reserved gameplay budget);
       // Jelly/Moon keep their short contact arcs.
       if(modern)this.contactAccents(s,false);
@@ -1343,6 +1422,8 @@
         for(let i=0;i<source.length;i++)Object.assign(items[i]||(items[i]={}),source[i]);
         items.length=source.length;
       }
+      // Only the departing eye is held, never the live player or its physics.
+      if(s.scene==='track')out.nightEyeY=1.99+s.player.height;
       out.player=s.player;out.obstacles=[];out.flatAnchor=s.flatAnchor;out.extreme=s.extreme?{...s.extreme}:null;
     }
     renderWorld(s,live,medium,target,showHero=true) {
@@ -1548,6 +1629,7 @@
       this.camera(s);
       const deferHero=!!this.handoff&&!this.handoff.hero;
       this.deferred=deferHero&&desired!=='neon-doodle'?[]:null;this.deferredNeon=null;
+      this.stats.obstacleProbes=[]; // Neon has no 3D hazard pass: never leak the previous medium’s probes.
       const incoming=this.renderWorld(s,s,desired,c,deferHero&&desired==='neon-doodle'?'defer':true);
       const deferred=this.deferred;this.deferred=null;
       let commands=incoming.commands,images=incoming.images,passes=1,outgoingCommands=0;
@@ -1569,9 +1651,9 @@
           if(previous)Object.assign(previous,effect);
           else {old.effects.push({...effect});if(old.effects.length>8)old.effects.shift();}
         }
-        // A painted world leaving for EXTREME keeps its own camera while it fades.
-        const ownCamera=s.scene==='extreme'&&old.scene!=='extreme';
-        if(ownCamera)this.camera(old);
+        // Independent outgoing lens for the neon entrance and the eye → ink pullback.
+        const ownCamera=s.scene==='extreme'&&old.scene!=='extreme'||s.scene==='corkscrew'&&old.scene==='track';
+        if(ownCamera)this.camera(old,old.nightEyeY);
         this.giantAlpha=this.handoff.medium==='neon-doodle'?1-smooth((s.simTime-this.handoff.start)/.2):1;
         const outgoing=this.renderWorld(old,s,this.handoff.medium,this.blendContext,this.handoff.hero);
         this.giantAlpha=1;
@@ -1599,6 +1681,7 @@
       this.remember(s);
       if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
       const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+this.pixelCanvas.width*this.pixelCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
+      this.stats.transition.camera=this.pov?{mode:this.pov.mode,blend:this.pov.blend,eye:this.cam.eye.slice(),target:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:null;
       this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
       this.stats.worldResolution=incoming.resolution;
       this.stats.budgets.used=incoming.commands;

@@ -755,7 +755,7 @@
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
-      art:{extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
+      art:{perspective:renderer.stats.transition.camera??null,extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
         transition:{...renderer.stats.transition},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},
