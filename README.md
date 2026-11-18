@@ -104,7 +104,7 @@ gathers the pack and city into one giant; the Moon then starts from a single bod
 never in the Moon or fold. The sculpted current hero is used only for Jelly, Moon
 and the fold bridge; every other medium has its original hero.
 
-Two cameras change the point of view, not the course. Night moves from the
+Three cameras change the point of view, not the course. Night moves from the
 extrusion framing into the voxel dinosaur’s head over 0.90 s. It looks along
 +z with a fixed lens and pitch; its eye rises by exactly the jump height. The
 own body leaves view, then the incoming ink hero is revealed on the pullback.
@@ -113,8 +113,14 @@ centre and solid cut edges show the cel soles lifting away and landing toward a
 stationary, upward-facing lens. The pack and city stay overhead for the whole
 build. Coalescence rises back to its original framing within 1.20 s. Neither
 view changes the take-off line, contacts, speed, jump arc, or stage clock.
-Reduced motion keeps both physical viewpoints and the real jump height: neither
-camera adds idle sway, head bob, impact shake or a pulsing lens. The existing
+In Jelly, only the first floor cactus on each lap gets an eye. Its paired cherry
+canopy is visible before the cut. The lens rides inside the cactus crown and
+looks back at the approaching dino; the player still controls both the bounce
+and the drop. After the feet pass overhead, a short dissolve restores the
+ordinary view by 0.115 s after the floor centre, in time to see the real canopy
+and decide when to drop. Hitting the cactus ends the shot without retargeting.
+Reduced motion keeps the physical viewpoints and real jump height without an
+orbit, idle sway, head bob, impact shake or a pulsing lens. The existing
 reduced-motion scenery, landing response and shorter medium dissolve still apply.
 
 Kept fixes from the refined version: decoded/cached painted sky with an
@@ -220,9 +226,16 @@ There is no service worker or offline cache to install or invalidate.
 Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 7 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
 EXTREME state (forward cue times and first crossing), impact audio counts,
-close-camera/top/hero bounds, and opening/handoff geometry. During the two
+close-camera/top/hero bounds, and opening/handoff geometry. During the
 perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
-one unit along the viewing direction (`target`), `mode`, and `blend`. In these
+one unit along the viewing direction (`target`), `mode`, and `blend`. During
+`cactus-eye` it also reports the first cell's `ordinal`, `targetId`, `roofId`,
+`phase`, `targetZ`, `aim` and `exitReason`. The blend is the contribution of
+the reverse lens, not a change to the simulation or the control mapping. The
+hero and obstacle probes share a `cameraSpace` (`jelly` or `cactus-eye`)
+during this shot, identifying the lens that owns the visible hero. If the foot
+anchor is behind the near plane, its projection is omitted even if a toe or
+part of the body is still visible. In these
 shots each live obstacle probe also has camera-space foot depth `viewZ` and
 `visibleBounds`: viewport-clipped bounds of the emitted cactus geometry, or
 `null` outside view. They exclude the shadow and take-off line and do not claim

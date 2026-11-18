@@ -106,6 +106,8 @@
     }
     resize() {
       this.w = innerWidth; this.h = innerHeight;
+      // Align the temporary cactus caption above the chapter's safe-area row.
+      this.chapterBottom=parseFloat(getComputedStyle(document.getElementById('chapter')).bottom)||16;
       this.dpr = this.dprFor();
       this.canvas.width = Math.max(1,Math.floor(this.w * this.dpr));
       this.canvas.height = Math.max(1,Math.floor(this.h * this.dpr));
@@ -209,6 +211,45 @@
       }
       this.perspective(s,nightEyeY);
     }
+    // Acquire cell one from the LIVE phrase serials, never from a scenery pass or
+    // a nearest-obstacle search. A skipped encounter cannot migrate to cell two.
+    cactusShot(s,reset) {
+      if(reset||s.scene!=='jelly'||this.cell?.lap!==s.lap)this.cell=null;
+      if(s.scene!=='jelly'||!s.phraseSpawn)return null;
+      if(s.mode!=='running'){if(this.cell)this.cell.spent=true;return null;}
+      if(this.cell?.spent)return null;
+      if(!this.cell) {
+        const id=s.serial-s.phraseSpawn*2+1, floor=s.obstacles.find(o=>o.id===id&&o.kind==='ground');
+        const roof=s.obstacles.find(o=>o.id===id+1&&o.kind==='ceiling');
+        if(!floor||!roof)return null;
+        this.cell={lap:s.lap,floor,roofId:roof.id,z:floor.z,time:s.simTime};
+      }
+      const cell=this.cell,floor=cell.floor;
+      // The read-only floor reference retains its final physics position even if
+      // collision filtered it between frames. Only the lens moves after that.
+      if(!cell.reason) {
+        if(floor.hit||floor.resolved){
+          cell.reason=floor.hit?'hit':'pass';
+          cell.time=Math.min(s.simTime,cell.time+(cell.z-floor.z)/s.speed);
+        } else cell.time=s.simTime;
+        cell.z=floor.z;
+      }
+      const z=cell.z-(s.simTime-cell.time)*s.speed,tt=z/s.speed;
+      const enter=smooth((Math.min(1.1,s.approachTTC-.18)-tt)/.18);
+      const exit=cell.reason==='hit'?smooth((s.simTime-cell.time)/.11):smooth((-tt-.005)/.11);
+      const blend=enter*(1-exit);
+      if(!blend||this.handoff)return null;
+      return {mode:'cactus-eye',ordinal:1,targetId:floor.id,roofId:cell.roofId,targetZ:z,
+        phase:exit>0?'exit':enter<1?'entry':'eye',blend,exitReason:cell.reason||null};
+    }
+    cactusCamera(shot,s) {
+      // Inside the crown of the trunk, looking back along the lane. Lift the lens
+      // slightly into the passing feet without ever turning around behind them.
+      const eye=[-.165,1.27,shot.targetZ+.14],pitch=mix(.08,.59,smooth((.34-shot.targetZ/s.speed)/.33));
+      const forward=norm([.045,Math.tan(pitch),-1]),right=norm(cross(forward,[0,1,0]));
+      this.cam={eye,forward,right,up:cross(right,forward),b:1,near:.075,focal:Math.min(this.w*.68,this.h*.39),cx:this.w*.5,cy:this.h*.52};
+      this.pov=shot;
+    }
     perspective(s,nightEyeY) {
       const c=this.cam,t=s.sceneTime,night=s.scene==='track',ink=s.scene==='corkscrew'&&t<.80,
         stamp=s.scene==='stampede',rise=s.scene==='coalesce'&&t<1.2;
@@ -254,19 +295,19 @@
       return [dot(d,this.cam.right),dot(d,this.cam.up),dot(d,this.cam.forward)];
     }
     project(p) {
-      const c = this.cam, k = c.focal / mix(24, Math.max(.35, p[2]), c.b);
+      const c = this.cam, k = c.focal / mix(24, Math.max(c.near??.35, p[2]), c.b);
       const x=c.cx+p[0]*k,y=c.cy-p[1]*k,roll=this.s.worldRoll||0;
       if(!roll)return [x,y];
       const foot=this.footScreen(),dx=x-foot[0],dy=y-foot[1],co=Math.cos(roll),si=Math.sin(roll);
       return [foot[0]+dx*co-dy*si,foot[1]+dx*si+dy*co];
     }
     clipNear(v) {
-      const clipped = [];
+      const clipped = [], near=this.cam.near??.35;
       for (let i = 0; i < v.length; i++) {
-        const a = v[i], b = v[(i + 1) % v.length], ai = a[2] >= .35, bi = b[2] >= .35;
+        const a = v[i], b = v[(i + 1) % v.length], ai = a[2] >= near, bi = b[2] >= near;
         if (ai) clipped.push(a);
         if (ai !== bi) {
-          const t = (.35 - a[2]) / (b[2] - a[2]);
+          const t = (near - a[2]) / (b[2] - a[2]);
           clipped.push(a.map((n, j) => mix(n, b[j], t)));
         }
       }
@@ -512,6 +553,16 @@
       const accent=mixRGB(base,this.medium==='gummy'?[149,245,215]:this.medium==='lunar'?[150,175,216]:fallback?[244,190,76]:LIME,e);
       const y0=o.y??s.player.height,scale=this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1;
       const squash=this.medium==='gummy'?Math.min(1,1-(1-this.landingScale(s))*2):this.landingScale(s),lean=s.player.stumble>0?-.1:0;
+      const front=this.pov?.mode==='cactus-eye';
+      // Let the head-on key catch the front planes and the reflected runway
+      // light catch the soles. Same three gummy values and unchanged meshes.
+      const bodyTone=front?(u,v)=>v>.45?2:v<-.35?0:1:heroTone;
+      const legTone=front?(u,v)=>v<-.7?2:bodyTone(u,v):heroTone;
+      // From the nose, the long side silhouette eclipses its paper-thin eye.
+      // Carry the two tiny eye marks around the brow, on the actual front facet.
+      const brow=(side,n,color)=>this.polygon(Array.from({length:8},(_,i)=>{
+        const a=i*Math.PI/4;return at(1.008,1.685+Math.sin(a)*n,side*.157+Math.cos(a)*n*.78);
+      }),color);
       const at=(z,y,x)=>[x*ext*scale/squash,y0+y*scale*squash,(z+lean*y)*scale];
       const grounded=s.player.grounded,phase=s.distance*1.7;
       const leg=(side,p)=>{
@@ -519,13 +570,13 @@
         const hip=side<0?[15.5,29]:[22.5,29];
         const stride=grounded?Math.sin(p)*3.2:side<0?2.4:-1.8,lift=grounded?Math.max(0,Math.cos(p))*3.4:2.4;
         const outline=LEG.map(([x,y],i)=>toHero([hip[0]+x+(i>1?stride:0),hip[1]+y-(i>1?lift:0),.1]));
-        this.extrude(outline,(z,y,w)=>at(z,y,side*.25+w),heroTone,tones,side<0?edge:null);
+        this.extrude(outline,(z,y,w)=>at(z,y,side*.25+w),legTone,tones,side<0?edge:null);
       };
       const flat=(points,x,color,edgeColor=null)=>{this.edgeWidth=edgeColor?.8:null;this.polygon(points.map(p=>at(p[0],p[1],x)),color,1,edgeColor);this.edgeWidth=null;};
       this.group(this.view(at(0,.9,0))[2],()=>{
         leg(1,phase+Math.PI);
         flat(ARM,.37,tones[0]);
-        this.extrude(HERO,at,heroTone,tones,edge);
+        this.extrude(HERO,at,bodyTone,tones,edge);
         flat(HAUNCH,-.47,tones[2]);
         const grow=smooth((s.extrusion-.2)/.4);
         if(grow>0)for(const [a,apex,b] of SPIKES) {
@@ -536,10 +587,23 @@
         }
         // A three-quarter eye: dark pupil and a single glint, white like the page sprite when flat.
         const eye=e>.4?[16,22,40]:this.theme.page,ring=n=>Array.from({length:6},(_,i)=>{const a=i*Math.PI/3;return toHero([27.4+Math.cos(a)*n,4.6+Math.sin(a)*n,0]);});
-        flat(ring(1.7),-.345,eye);
-        if(e>.4)flat(ring(.55).map(p=>[p[0]+.03,p[1]+.03]),-.35,[236,255,214]);
+        if(!front)flat(ring(1.7),-.345,eye);
+        if(!front&&e>.4)flat(ring(.55).map(p=>[p[0]+.03,p[1]+.03]),-.35,[236,255,214]);
         leg(-1,phase);
         flat(ARM,-.39,tones[1],edge);
+        if(front){
+          const snout=at(HERO[6][0],HERO[6][1],0);
+          if(this.cam.eye[2]>snout[2]) {
+            const depth=[6,7].flatMap(i=>[-1,1].map(k=>this.view(at(HERO[i][0],HERO[i][1],HERO[i][2]*k))[2])).reduce((a,b)=>a+b)/4;
+            const start=this.sink.length;
+            for(const side of [-1,1]){brow(side,.058,eye);brow(side,.016,[236,255,214]);}
+            // The ink belongs to the brow surface, not a separately sorted flap.
+            for(let i=start;i<this.sink.length;i++)this.sink[i].depth=depth-.001;
+          }
+          // The authored side-view part stacking would show the dorsal fins
+          // through the belly here. Sort the existing facets in this lens only.
+          this.sink.sort((a,b)=>b.depth-a.depth);
+        }
       });
     }
     sculptedCactus(z,scale,x,base,color,layered=true) {
@@ -836,7 +900,7 @@
     jellyWorld(s) {
       this.layer=0;
       // A bounded glassy road: an opaque base plus a few local gloss facets.
-      for(let i=-5;i<29;i++) {
+      for(let i=this.pov?.mode==='cactus-eye'?-28:-5;i<29;i++) {
         const z=i*3-s.distance%3;
         this.polygon([[-2.9,0,z],[2.9,0,z],[2.9,0,z+3.02],[-2.9,0,z+3.02]],[92,186,179]);
         this.polygon([[-2.7,.012,z],[2.7,.012,z],[2.7,.012,z+3.02],[-2.7,.012,z+3.02]],[148,223,208]);
@@ -847,8 +911,8 @@
         if(i%3===0){this.opacity=.26;this.polygon([[-2.3,.025,z],[.3,.025,z+.7],[1.7,.025,z+1],[-1.4,.025,z+.4]],[255,255,245]);this.opacity=1;}
       }
       this.layer=2;
-      for(let i=0;i<8;i++)for(const side of [-1,1]) {
-        const z=i*10+5-s.distance%10,x=side*(6.6+(i%3)*1.5),h=2.2+(i%3)*.65;
+      for(let i=this.pov?.mode==='cactus-eye'?-8:0;i<8;i++)for(const side of [-1,1]) {
+        const tier=(i%3+3)%3,z=i*10+5-s.distance%10,x=side*(6.6+tier*1.5),h=2.2+tier*.65;
         const kick=this.clearWave(s,z)*.6,drive=0;
         const sway=s.reducedMotion?0:Math.sin(s.simTime*(2.1+drive*.45)+i)*(.10+drive*.07)+Math.sin(kick*5+i)*kick*.65;
         const jelly=s.reducedMotion?1:1+kick*.42*Math.sin(s.simTime*12+i);
@@ -1176,6 +1240,7 @@
         this.opacity=exposure;
         // Continuity probe: where the one hero's feet project this frame, and at what scale.
         const hv=this.view([0,s.player.height,0]);
+        if(this.pov?.mode==='cactus-eye')this.stats.hero=null;
         if(hv[2]>.35){const hp=this.project(hv);this.stats.hero={x:hp[0],y:hp[1],pxPerUnit:this.cam.focal/mix(24,Math.max(.35,hv[2]),this.cam.b),medium:this.medium};}
         const first=this.faces.length;
         this.hero=true;
@@ -1191,6 +1256,7 @@
           }
         }
         if(Number.isFinite(bounds.left)&&this.stats.hero)this.stats.hero.bounds=bounds;
+        if(this.pov?.mode==='cactus-eye'&&this.pov.blend<1)this.eyeHeroVisible=!!this.visibleBounds(first);
         if(s.recovery>0&&painted) {
           this.layer=3;this.opacity=.7;
           // A steady amber ground halo keeps the real painted character unobscured.
@@ -1207,8 +1273,9 @@
       for(const o of [...s.obstacles,...(s.clearedTail||[])]) {
         if(o.z<=-8)continue;
         // Clearance is a score flag, never a shrink/eat animation. Keep full-height geometry.
+        const own=this.pov?.mode==='cactus-eye'&&o.id===this.pov.targetId;
         if(modern||warm) {
-          if(s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
+          if(!own&&s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
         } else {
           this.layer=3;
           this.opacity=shadow;
@@ -1216,7 +1283,13 @@
           this.opacity=1;
         }
         this.layer=4;const first=this.faces.length;
-        if(o.kind==='ceiling')this.canopy(o);
+        if(own){
+          // Inside the crown: don't draw the trunk around the lens. Its two
+          // real branches can still enter the corners; never billboard them.
+          const tones=[[112,36,74],[214,45,99],[222,124,155]];
+          const at=(u,v,d)=>[-u,v,o.z+d];
+          for(const arm of [CACTUS.slice(2,10),CACTUS.slice(14,22)])this.extrude(arm,at,cactusTone,tones);
+        } else if(o.kind==='ceiling')this.canopy(o);
         else if(this.medium==='pixel-16')this.windowBox(0,0,o.z,1.8,1.25,o.id,false,true);
         else this.cactus(o.z,1,1,0,0,modern?null:s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
         if(this.pov&&s===this.scenery){const probe=probes.find(p=>p.id===o.id);
@@ -1541,6 +1614,11 @@
         c.fillStyle=glass;c.beginPath();c.roundRect((w-tw)/2-9,y-13,tw+18,21,6);c.fill();
         c.fillStyle=ink;c.fillText(text,w/2,y+1);
       }
+      if(this.pov?.mode==='cactus-eye' && this.pov.targetZ>0) {
+        c.save();c.globalAlpha*=this.pov.blend*smooth(this.pov.targetZ/(s.speed*.18));
+        c.font='600 '+(w<450?10:12)+'px ui-monospace, monospace';c.textAlign='center';
+        c.fillStyle=ink;c.fillText('CACTUS CAM · YOU STILL CONTROL THE DINO',w/2,h-this.chapterBottom-32);c.restore();
+      }
       // The original dinosaurOS bars sit below the shared HUD band, never under it.
       if(this.hudDesktop>.001) {
         const y=top+size+8;
@@ -1627,12 +1705,38 @@
       if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
       // Both visible gameplay passes use this single current camera and transform.
       this.camera(s);
+      const shot=this.cactusShot(s,reset),dissolve=shot&&shot.blend<1;
       const deferHero=!!this.handoff&&!this.handoff.hero;
       this.deferred=deferHero&&desired!=='neon-doodle'?[]:null;this.deferredNeon=null;
       this.stats.obstacleProbes=[]; // Neon has no 3D hazard pass: never leak the previous medium’s probes.
-      const incoming=this.renderWorld(s,s,desired,c,deferHero&&desired==='neon-doodle'?'defer':true);
+      const ordinary=this.cam;
+      let eyePass,eyeCamera,eyeProbes,ordinaryHero=true;
+      if(shot)this.cactusCamera(shot,s);
+      if(dissolve){
+        // Render the reverse lens first: late in the pass its feet can already
+        // be outside the frustum. Let the ordinary view own the one visible hero.
+        this.eyeHeroVisible=false;eyeCamera=this.cam;
+        eyePass=this.renderWorld(s,s,desired,this.blendContext,shot.blend>=.5);
+        ordinaryHero=!this.eyeHeroVisible;eyeProbes=this.stats.obstacleProbes;
+        this.cam=ordinary;this.pov={mode:'jelly'};
+      }
+      const incoming=this.renderWorld(s,s,desired,c,deferHero&&desired==='neon-doodle'?'defer':ordinaryHero);
       const deferred=this.deferred;this.deferred=null;
       let commands=incoming.commands,images=incoming.images,passes=1,outgoingCommands=0;
+      if(dissolve) {
+        // Two fixed lenses, one dominant hero. No interpolation between opposite
+        // directions; reuse the handoff buffer only when no handoff is active.
+        this.cam=eyeCamera;this.pov=shot;
+        if(!ordinaryHero)this.stats.obstacleProbes=eyeProbes;
+        c.save();c.setTransform(1,0,0,1,0,0);c.globalAlpha=shot.blend;
+        c.drawImage(this.blendCanvas,0,0);c.restore();
+        outgoingCommands=eyePass.commands;commands+=eyePass.commands;images+=eyePass.images+1;passes=2;
+      }
+      if(shot){
+        const space=dissolve&&ordinaryHero?'jelly':'cactus-eye';
+        for(const probe of this.stats.obstacleProbes)probe.cameraSpace=space;
+        if(this.stats.hero)this.stats.hero.cameraSpace=space;
+      }
       if(this.handoff) {
         const old=this.handoff.scenery;
         const advance=dt*s.speed;
@@ -1681,7 +1785,7 @@
       this.remember(s);
       if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
       const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+this.pixelCanvas.width*this.pixelCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
-      this.stats.transition.camera=this.pov?{mode:this.pov.mode,blend:this.pov.blend,eye:this.cam.eye.slice(),target:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:null;
+      this.stats.transition.camera=this.pov?{...(shot?{...shot,aim:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:{}),mode:this.pov.mode,blend:this.pov.blend,eye:this.cam.eye.slice(),target:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:null;
       this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
       this.stats.worldResolution=incoming.resolution;
       this.stats.budgets.used=incoming.commands;

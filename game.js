@@ -744,6 +744,8 @@
   };
   function snapshot() {
     const next=s.obstacles.find(o=>!o.resolved),a=s.flatAnchor;
+    // A restart can display the native page before its hidden renderer warmup.
+    const camera=renderer.lastRun===s.run?renderer.stats.transition.camera??null:null;
     return freeze({
       version:7,speed:s.speed,speedMultiplier:s.speedMultiplier,approachTTC:s.approachTTC,distance:s.distance,userPaused,focusPaused,clearedTail:s.clearedTail.map(o=>({...o})),health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
       effectCounts:{puffs:s.effects.filter(e=>e.puff).length,impacts:s.effects.length,bursts:s.effects.filter(e=>e.big).length,transitions:s.transitions.length},mode:s.mode,scene:s.scene,sceneTime:s.sceneTime,success:s.success,target:s.target,
@@ -755,8 +757,8 @@
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
-      art:{perspective:renderer.stats.transition.camera??null,extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
-        transition:{...renderer.stats.transition},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
+      art:{perspective:camera,extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
+        transition:{...renderer.stats.transition,camera},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},
       // Additive (opening/handoff): the page runner, its geometry and the one hero.
