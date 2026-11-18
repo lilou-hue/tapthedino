@@ -114,6 +114,24 @@ lunar arrangements. The original refined night/painted art and Chrome fold remai
   sprite ↔ sculpted morph shows both heroes; otherwise the outgoing world fades
   without its hero, and the neon giant fades first on the fold.
 
+### Earned chaos (same rules)
+
+Clean streaks raise three bounded visual tiers: roadside night shards and split
+sun facets, world-frame ink confetti on real flips, elastic gummy plant caps and
+slam splashes, subtle painted leaf swirls, and low-gravity lunar dust comets.
+Big clears briefly pop a medium-matched comic sticker, kick the scenery and add
+short, syncopated musical accents; Moon's
+two credits produce **one** landing burst. EXTREME's confetti and **OVERKILL!**
+stamp require actual successful contact, then contract during the rewind.
+
+No new modes, hazards or difficulty changes. New fragments avoid the projected
+jump envelope, presented hazards and HUD; jelly's canopy underside stays static.
+Effects use simulation time and the existing eight-effect/1.5-second lifetime,
+with at most 32 procedural fragments per world pass (four in reduced motion).
+Stage intros stay quiet, pause/hidden time freezes the response, and no audio
+accent is queued for a later unlock. Reduced motion suppresses secondary wobble
+and trails without changing the real ink quarter-turn mechanic.
+
 Cleared cacti stay
 full-height and continue behind the hero to the near/offscreen boundary (`z > -8`);
 a bounded render-only tail survives stage transitions without old collisions or

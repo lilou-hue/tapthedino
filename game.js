@@ -190,7 +190,11 @@
     const cfg=physics(),p=s.player;
     if(!p.grounded && cfg.airAction==='slam') {
       p.buffer=0;
-      if(!p.slam){p.slam=true;p.velocity=cfg.slamVelocity;audio.stageAction('slam');}
+      if(!p.slam){
+        p.slam=true;p.velocity=cfg.slamVelocity;audio.stageAction('slam');
+        s.effects.push({age:0,z:0,scene:s.scene,slam:true,seed:s.inputCount,tier:Math.min(3,1+Math.floor(s.combo/3))});
+        if(s.effects.length>8)s.effects.shift();
+      }
       return;
     }
     if(!p.grounded && !cfg.buffer)return;
@@ -279,7 +283,6 @@
       opening.hidden=false;root.dataset.phase='fold';openingBody.style.opacity='0';
       runner.hideRunner=true;runner.layout();runner.reset();beginHandoff();
       s.heroFrame=0;anchorFromRunner();
-      audio.payoff();
     } else if(scene==='breath') {
       s.extrusion=0;s.projectionBlend=0;audio.stopVoices();
     }
@@ -303,7 +306,7 @@
     if(!s.pending) return;
     // The page's runner has no clear chime, ring or impact; only the hidden count moves.
     const quiet=inOpening();
-    const count=s.pending;s.pending=0;
+    const count=s.pending;s.pending=0;let big=false;
     for(let i=0;i<count;i++) {
       s.success++;s.earned++;s.lapEarned++;s.combo++;
       s.multiplier=Math.min(3,1+Math.floor(s.combo/3));
@@ -311,12 +314,16 @@
       s.score+=points;s.lapScore+=points;
       if(quiet) continue;
       s.impact=.32;
-      const big=s.combo%3===0 && s.scene!=='offline';
-      if(big)s.burst=1.5;
-      s.effects.push({age:0,z:0,big,scene:s.scene});
-      if(s.effects.length>8)s.effects.shift();
-      audio.clear(s.scene==='offline',s.scene,big,s.variant);
+      big ||= s.combo%3===0 && s.scene!=='offline';
       successfulTransformation();
+    }
+    // Compound Moon cells earn two credits but ONE landing response. No transport
+    // replay: the audio accent is fired here, never by polling the burst state.
+    if(!quiet) {
+      if(big)s.burst=1.5;
+      s.effects.push({age:0,z:0,big,scene:s.scene,seed:s.earned,tier:Math.min(3,1+Math.floor(s.combo/3))});
+      if(s.effects.length>8)s.effects.shift();
+      audio.clear(false,s.scene,big,s.variant);
     }
     // One quarter turn per earned LANDING, not per pending obstacle credit.
     if(s.scene==='corkscrew') turnWorld(s.rollTarget+(s.lap%2?1:-1)*Math.PI/2);
@@ -515,7 +522,7 @@
         e.cleared=true;s.extremeCleared=true;s.finalInput=true;s.success=1;
         // Exactly one capped bonus, never points per press or a fallback success.
         s.score+=150;s.lapScore+=150;s.earned++;s.lapEarned++;
-        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;e.caption='CLEARED · TOP NOTCH!';audio.stopForward();
+        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;e.caption='CLEARED · TOP NOTCH!';audio.stopForward();audio.payoff();
       }
     } else if(e.phase==='payoff') {
       const t=clamp(e.time/1.4);
@@ -702,7 +709,7 @@
       obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
-      art:{extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
+      art:{chaos:{...renderer.stats.chaos,lastBurst:renderer.stats.chaos?.lastBurst?{...renderer.stats.chaos.lastBurst}:null},extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
         transition:{...renderer.stats.transition},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},

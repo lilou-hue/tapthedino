@@ -143,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=48',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=49',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);
@@ -259,8 +259,13 @@
     stageAction(kind) {
       if(this.extreme || this.muted || this.failed || this.context?.state!=='running')return;
       const t=this.context.currentTime+.008;
-      if(kind==='slam')this.tone(t,220,.14,.045,'triangle',65);
-      else if(kind==='jelly')this.tone(t,145,.22,.055,'sine',620);
+      if(kind==='slam') {
+        this.tone(t,260,.13,.032,'triangle',60);
+        this.tone(t+.035,95,.18,.025,'sine',170);
+      } else if(kind==='jelly') {
+        this.tone(t,125,.18,.040,'sine',540);
+        this.tone(t+.085,390,.20,.022,'sine',180);
+      }
       else this.tone(t,520,.55,.028,'sine',780);
     }
     playJump(plain) {
@@ -269,7 +274,7 @@
       if(voice){voice.kind='jump';this.jumpsPlayed++;}
     }
     clear(plain,scene,big=false,variant=0) {
-      if(!this.context) return;
+      if(!this.context || !this.wantPlaying || this.muted || this.context.state!=='running') return;
       const t=this.context.currentTime+.008;
       const note=({track:587,corkscrew:440,jelly:698,dream:659,moon:880})[scene]||587;
       this.tone(t,plain?520:note,.10,.04,'triangle');
@@ -280,13 +285,21 @@
         if(scene==='track')this.tone(t,110,.14,.075,'sine',55);
         else if(scene==='dream')this.tone(t+.16,note*.75,.48,.025,'sine');
       }
-      if(big)for(const [i,ratio] of [1,1.25,1.5,2].entries())
-        this.tone(t+i*.045,note*ratio*(variant===2?.5:1),.32,.035,'sine');
+      if(scene==='jelly') {
+        this.tone(t,180,.15,.035,'sine',75);
+        this.tone(t+.09,110,.20,.020,'sine',240);
+      }
+      if(big) {
+        const moon=scene==='moon',ink=scene==='corkscrew',soft=scene==='dream';
+        for(const [i,ratio] of [1,1.5,1.25,2].entries())
+          this.tone(t+i*(moon?.11:ink?.055:.075),note*ratio*(variant===2?.5:1),moon?.48:soft?.30:.16,soft?.016:moon?.019:.026,ink?'triangle':'sine');
+        if(ink)this.hiss(t+.06,.045,.020,2800);
+      }
     }
     payoff() {
       const a=this.context;if(!a || this.muted)return;
       this.stopVoices();const t=a.currentTime+.008;
-      this.tone(t,145,.48,.27,'sine',36);
+      this.tone(t,145,.48,.18,'sine',36);
       this.hiss(t,.25,.06,900);
       for(const f of [146.83,220,293.66,369.99])this.tone(t,f,1.1,.055,'triangle');
     }
@@ -318,7 +331,7 @@
       const progress=duration?Math.min(1,Math.max(s.sceneTime/duration,s.success/Math.max(1,s.target))):0;
       // Two finite arrangement lifts, including on lap one. Later laps add at most one.
       const drive=s.scene==='track';
-      this.arrangement=drive?Math.min(2,(progress>.45?1:0)+(progress>.78?1:0)+(s.lap>1&&s.combo>=3?1:0)):0;
+      this.arrangement=drive?Math.min(2,(progress>.45?1:0)+(progress>.78?1:0)+(s.lap>1&&s.combo>=3?1:0)):s.sceneTime>1&&['corkscrew','jelly','moon'].includes(s.scene)?Math.min(2,Math.floor(s.combo/3)):0;
       if(duration && progress>.78 && s.success>0 && !this.anticipation) {
         this.anticipation=true;
         const t=a.currentTime+.012,root=({track:146.83,dream:164.81})[s.scene];
@@ -344,14 +357,22 @@
       while(this.origin+this.step*BEAT/2<a.currentTime+.12 && scheduled++<4) {
         const n=this.step++,t=Math.max(a.currentTime+.005,this.origin+n*BEAT/2);
         if(s.scene==='moon') {
-          if(n%8===0)this.tone(t,[220,261.63,329.63,293.66][Math.floor(n/8)%4],BEAT*5,.035,'sine');
+          if(n%8===0)this.tone(t,[220,261.63,329.63,293.66][Math.floor(n/8)%4],BEAT*5,this.arrangement?.026:.035,'sine');
           if(n%16===4)this.tone(t,880,.65,.016,'sine',660);
+          // Syncopation rather than louder pads; at most two short orbit notes.
+          if(this.arrangement && n%8===5)this.tone(t,660,.28,.014,'sine',880);
+          if(this.arrangement===2 && n%16===11)this.tone(t,1320,.18,.010,'sine',990);
           continue;
         }
         if(s.scene==='corkscrew' || s.scene==='jelly') {
           const jelly=s.scene==='jelly',note=(jelly?130.81:110)*[1,1.5,1.25,2][Math.floor(n/4)%4];
-          if(n%4===0)this.tone(t,note,jelly?.24:.11,.06,jelly?'sine':'triangle',jelly?note*2:note*.8);
+          if(n%4===0)this.tone(t,note,jelly?.24:.11,this.arrangement?.045:.06,jelly?'sine':'triangle',jelly?note*2:note*.8);
           if(n%8===2)this.tone(t,note*3,.13,.022,'sine');
+          if(this.arrangement && n%4===3)this.tone(t+BEAT/8,note*(jelly?2.5:4),.085,.019,jelly?'sine':'triangle',note*(jelly?1.5:3));
+          if(this.arrangement===2 && n%8===5) {
+            this.tone(t,note*2,.095,.018,'sine',jelly?note*3:null);
+            if(!jelly)this.hiss(t,.025,.012,4200);
+          }
           continue;
         }
         const dream=s.scene==='dream';

@@ -351,11 +351,11 @@
     clearWave(s,z) {
       let pulse=0;
       for(const effect of s.effects) {
-        if(effect.puff)continue;
+        if(effect.puff || effect.slam || effect.scene!==s.scene)continue;
         const age=effect.age-Math.max(0,z)/70;
         if(age>0 && age<.55)pulse=Math.max(pulse,Math.sin(age/.55*Math.PI)*(effect.big?1:.6));
       }
-      return pulse*(s.reducedMotion?.25:1);
+      return pulse*smooth((s.sceneTime-1)/.45)*(s.reducedMotion?.08:1);
     }
     build(s) {
       const duration=({track:14,dream:12})[s.scene];
@@ -371,7 +371,7 @@
       const edge=mixRGB(base,[12,16,40],.62*e).map(Math.round);
       const accent=mixRGB(base,this.medium==='ink-paper'?[203,59,57]:this.medium==='gummy'?[149,245,215]:this.medium==='lunar'?[150,175,216]:fallback?[244,190,76]:LIME,e);
       const y0=o.y??s.player.height,scale=this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1;
-      const squash=this.medium==='gummy'?Math.min(1,this.landingScale(s)):this.landingScale(s),lean=s.player.stumble>0?-.1:0;
+      const squash=this.medium==='gummy'?Math.min(1,1-(1-this.landingScale(s))*2):this.landingScale(s),lean=s.player.stumble>0?-.1:0;
       const at=(z,y,x)=>[x*ext*scale/squash,y0+y*scale*squash,(z+lean*y)*scale];
       const grounded=s.player.grounded,phase=s.distance*1.7;
       const leg=(side,p)=>{
@@ -467,7 +467,7 @@
       const mirror=s.variant===1?-1:1,shift=s.variant===2?VALLEY_LOOP/2:0;
       for(const [pz,px,name,size] of VALLEY) {
         const z=((pz+shift-s.sceneDistance)%VALLEY_LOOP+VALLEY_LOOP)%VALLEY_LOOP-8,x=px*mirror;
-        const breath=this.clearWave(s,z)*.1+this.build(s)*.012*Math.sin(s.beat*Math.PI-z*.09);
+        const breath=this.clearWave(s,z)*.19+this.build(s)*.012*Math.sin(s.beat*Math.PI-z*.09);
         const width=size*(1-breath*.3),height=size*(1+breath);
         let alpha=smooth((z+4)/6)*smooth((VALLEY_LOOP-10-z)/10);
         const r=this.spriteRect(x,0,z,width,height);
@@ -498,8 +498,8 @@
       this.layer=2;
       for(let i=0;i<4;i++)for(const side of [-1,1]) {
         const zf=10+i*16-(s.distance*.35)%16+(side>0?7:0),x=side*(offset+i*.8+(side>0?1.6:0));
-        const wave=this.clearWave(s,zf)*.5,fade=smooth((zf+4)/8)*smooth((66-zf)/10);
-        const h=(3.4+((i+(side>0?1:0))%3)*1.5)*e*(1+wave*.12)*fade;
+        const wave=this.clearWave(s,zf),fade=smooth((zf+4)/8)*smooth((66-zf)/10);
+        const h=(3.4+((i+(side>0?1:0))%3)*1.5)*e*(1+wave*.7)*fade;
         if(h<.05)continue;
         this.polygon([[x,0,zf-4],[x+side*6,h,zf+1],[x+side*2.4,0,zf+6]],mixRGB(colors[0],[120,150,210],wave*.3));
         this.polygon([[x,0,zf-4],[x+side*6,h,zf+1],[x+side*10,0,zf-1]],colors[1]);
@@ -607,11 +607,13 @@
       this.layer=2;
       for(let i=0;i<8;i++)for(const side of [-1,1]) {
         const z=i*10+5-s.distance%10,x=side*(6.6+(i%3)*1.5),h=2.2+(i%3)*.65;
-        const sway=Math.sin(s.simTime*1.4+i)*.10;
+        const kick=this.clearWave(s,z),drive=this.chaosTier(s);
+        const sway=s.reducedMotion?0:Math.sin(s.simTime*(2.1+drive*.45)+i)*(.10+drive*.07)+Math.sin(kick*5+i)*kick*.65;
+        const jelly=s.reducedMotion?1:1+kick*.42*Math.sin(s.simTime*12+i);
         // Soft, rooted gumdrop caps with rounded shoulders, not floating crystals.
         const stem=[[-.24,0],[-.32,.12],[-.30,h*.55],[.30,h*.55],[.32,.12],[.24,0]];
         this.polygon(stem.map(([a,b])=>[x+a,b,z]),[108,178,157]);
-        const cap=Array.from({length:24},(_,j)=>{const t=j*Math.PI/12;return [x+Math.cos(t)*h*.48+sway,h*.67+Math.sin(t)*h*.34,z-.04];});
+        const cap=Array.from({length:24},(_,j)=>{const t=j*Math.PI/12;return [x+Math.cos(t)*h*.48*jelly+sway,h*.67+Math.sin(t)*h*.34/jelly,z-.04];});
         this.opacity=.9;this.polygon(cap,i%3===0?[235,163,192]:[109,194,166],1,[91,157,148]);this.opacity=1;
         this.opacity=.3;
         this.polygon(Array.from({length:16},(_,j)=>{const t=j*Math.PI/8;return [x-h*.15+Math.cos(t)*h*.16+sway,h*.83+Math.sin(t)*h*.09,z-.06];}),[255,255,231]);
@@ -696,11 +698,11 @@
         const color = this.base.map((n,j) => mix(n,(i%2 ? [29,32,57] : [31,34,60])[j],e));
         this.layer=0;this.box(0,ripple-.10,z,width,.20,3.015,color);
         if (e > .02) {
-          const light=this.clearWave(s,z)*.7+this.build(s)*.12*(.5+.5*Math.sin(z*.55-s.beat*Math.PI*2));
+          const light=this.clearWave(s,z)*1.8+this.build(s)*.12*(.5+.5*Math.sin(z*.55-s.beat*Math.PI*2));
           // Hairline rails lie flush on the road edge; a decal layer, not a bright wall.
           this.layer=1;
           for (const side of [-1,1]) {
-            const x0=side*(width*.5-.03),x1=side*(width*.5+.015+light*.03);
+            const x0=side*(width*.5-.03),x1=side*(width*.5+.015+light*.18);
             this.polygon([[x0,ripple+.004,z-1.5],[x1,ripple+.004,z-1.5],[x1,ripple+.004,z+1.5],[x0,ripple+.004,z+1.5]],[64+light*90,150+light*70,172+light*50]);
           }
           if (i%2 === 0) this.polygon([[-.025,ripple+.004,z-.35],[.025,ripple+.004,z-.35],[.025,ripple+.004,z+.35],[-.025,ripple+.004,z+.35]],[66,72,108]);
@@ -738,12 +740,14 @@
         }
         this.layer=2;
         // One suspended faceted sun near the vanishing point, below the HUD band.
-        const z = 70, y = 9, radius = 7 * e;
+        const kick=s.reducedMotion?0:this.clearWave(s,30);
+        const z = 70, y = 9, radius = 7 * e*(1+kick*.24);
         const top = [0,y+radius,z], bottom = [0,y-radius,z];
         const ring = Array.from({length:8},(_,i) => { const a = i*Math.PI/4 + (s.reducedMotion ? .2 : s.simTime*.035); return [Math.cos(a)*radius,y, z+Math.sin(a)*radius]; });
         for (let i=0;i<8;i++) {
-          this.polygon([top,ring[i],ring[(i+1)%8]],[244,108,175],.62+i*.05);
-          this.polygon([bottom,ring[(i+1)%8],ring[i]],[117,76,199],.62+i*.035);
+          const split=points=>points.map(([x,y,z])=>[x+Math.cos(i*Math.PI/4)*kick*2.8,y+kick*(i%2?1:-1)*2,z]);
+          this.polygon(split([top,ring[i],ring[(i+1)%8]]),[244,108,175],.62+i*.05);
+          this.polygon(split([bottom,ring[(i+1)%8],ring[i]]),[117,76,199],.62+i*.035);
         }
         this.fins(s,e,[[50,44,100],[29,26,64]]);
         // At most two quiet background cactiforms, outside the corridor, sinking
@@ -763,12 +767,93 @@
         }
       }
     }
+    chaosTier(s) {
+      if(!['track','corkscrew','jelly','dream','moon'].includes(s.scene))return s.scene==='extreme'&&s.extreme?.cleared?3:0;
+      return s.sceneTime<1?0:Math.min(3,1+Math.floor(s.combo/3));
+    }
+    chaosWorld(s) {
+      // Procedural fragments reuse the eight simulation-aged effects: no particle
+      // emitter, random per-frame seeds, retained trails or second simulation clock.
+      this.chaosCount=0;this.chaosSticker=null;
+      const tier=this.chaosTier(s),ink=s.scene==='corkscrew',gum=s.scene==='jelly',moon=s.scene==='moon',paint=s.scene==='dream';
+      if(!tier || !['track','corkscrew','jelly','dream','moon'].includes(s.scene))return;
+      const cfg=s.stageConfig,apex=cfg?cfg.jump*cfg.jump/(2*cfg.gravity):1.7;
+      // Protect the complete projected jump envelope, BOTH Moon cacti and roofs,
+      // even when the real ink floor turns sideways. World x alone is not enough.
+      const bounds=points=>{
+        const p=points.map(v=>this.project(this.view(v)));
+        return {left:Math.min(...p.map(v=>v[0]))-12,right:Math.max(...p.map(v=>v[0]))+12,top:Math.min(...p.map(v=>v[1]))-12,bottom:Math.max(...p.map(v=>v[1]))+12};
+      };
+      const box=(x,y,z,rx,ry,rz)=>{const p=[];for(const a of [-1,1])for(const b of [0,1])for(const c of [-1,1])p.push([x+a*rx,y+b*ry,z+c*rz]);return bounds(p);};
+      const keep=[box(0,0,0,.8,apex+2.1,1.4)];
+      for(const o of this.live.obstacles||[])if(o.z>-.6)keep.push(box(0,0,o.z,o.kind==='ceiling'?3.5:.8,o.kind==='ceiling'?o.ceilingHeight+.7:1.7,.65));
+      const emit=(points,color,alpha=1)=>{
+        if(this.chaosCount>=(s.reducedMotion?4:32))return;
+        const r=bounds(points);
+        if(r.top<this.hudTop+this.hudSize+44 || r.bottom>this.h-65 || keep.some(k=>r.left<k.right&&r.right>k.left&&r.top<k.bottom&&r.bottom>k.top))return;
+        this.opacity=alpha;this.layer=2;
+        if(this.polygon(points,color,1,ink?[47,39,36]:null))this.chaosCount++;
+      };
+      const colors=ink?[[36,33,38],[244,188,64],[216,67,72],[255,249,228]]:gum?[[248,161,199],[237,255,220],[91,192,166]]:moon?[[233,224,244],[168,190,226],[195,178,214]]:paint?[[216,159,93],[250,227,178],[116,154,107]]:[[115,239,219],[230,139,220],[173,174,255]];
+      for(const effect of s.effects) {
+        if(effect.puff || effect.scene!==s.scene || effect.age>=1.45)continue;
+        const age=effect.age,t=age/1.45,drive=effect.tier||tier;
+        const n=s.reducedMotion?2:paint?(effect.big?12:4):effect.big?20+drive*2:ink?16:effect.slam?12:8;
+        for(let i=0;i<n;i++) {
+          const seed=(effect.seed||1)*17+i*13,rand=(Math.sin(seed*7.13)*43758.5453)%1,u=Math.abs(rand),side=i%2?1:-1;
+          const flight=s.reducedMotion?.1:Math.sin(t*Math.PI)*(.7+u*2)*(effect.big?1.5:1);
+          const x=side*(3.6+u*5+age*(effect.big?2.8:1.2)),z=-3+(i%7)*2.4+effect.z*.25;
+          const y=.12+flight,size=(ink?.34:gum?.20:moon?.225:.13)*(1+drive*.16)*(1-t*.55);
+          const angle=s.reducedMotion?seed:seed+age*(ink?7:2),a=Math.cos(angle)*size,b=Math.sin(angle)*size;
+          let points;
+          if(gum)points=Array.from({length:8},(_,j)=>{const q=j*Math.PI/4;return [x+Math.cos(q)*size,y+Math.sin(q)*size,z];});
+          else if(moon)points=[[x,y,z],[x+side*size,y+size*.6,z],[x-side*(.4+age*1.9),y-size*.4,z+age*.8]];
+          else if(ink && i%3===0) {
+            // Bent paper strips and tapered black slashes, not floating wall bars.
+            points=[[x-a*2.4,y-b*2.4,z],[x-a*.4+b*.6,y-b*.4-a*.6,z+.12],[x+a*1.9,y+b*1.9,z],[x+a*.3-b*.5,y+b*.3+a*.5,z-.08]];
+          } else points=[[x-a,y-b,z],[x+b*.5,y-a*.5,z+.05],[x+a,y+b,z],[x-b*.5,y+a*.5,z-.05]];
+          const alpha=(paint?.65:1)*(1-t)*smooth(age/.06);
+          emit(points,colors[i%colors.length],alpha);
+          if(gum && i%3===0)emit([[x-size*.5,y+size*.3,z-.01],[x-size*.1,y+size*.65,z-.01],[x+size*.3,y+size*.5,z-.01]],colors[1],alpha*.8);
+        }
+      }
+      // One brief comic sticker per genuine big landing (>= three credits apart).
+      // It shares the effect clock, so pause/restart cannot replay it. Candidate
+      // rectangles are rejected against the same full jump/hazard envelopes.
+      const earned=s.effects.findLast(e=>e.big&&e.scene===s.scene&&e.age>.10&&e.age<.85);
+      const word=ink?'FLIP!':gum?'BOING!':moon?'ZERO G!':null;
+      if(earned && word && this.cost+3<this.sceneryLimit) {
+        const font=s.reducedMotion?12:Math.min(22,Math.max(15,this.w*.038));
+        const width=word.length*font*.64+18,height=font+14;
+        const angle=s.reducedMotion?0:ink?(s.worldRoll||0):-.12;
+        const co=Math.cos(angle),si=Math.sin(angle),padX=(Math.abs(co)*width+Math.abs(si)*height)/2,padY=(Math.abs(si)*width+Math.abs(co)*height)/2;
+        for(const [x,z,sky] of [[5,2],[-5,2],[7,9],[-7,9],[8,-2],[-8,-2],[.76,.32,true],[.22,.32,true]]) {
+          const v=sky?[0,0,5]:this.view([x,1.4,z]),p=sky?[this.w*x,this.h*z]:this.project(v);
+          const r={left:p[0]-padX-8,right:p[0]+padX+8,top:p[1]-padY-8,bottom:p[1]+padY+8};
+          if(v[2]<.35 || r.left<12 || r.right>this.w-12 || r.top<this.hudTop+this.hudSize+48 || r.bottom>this.h-75 || keep.some(k=>r.left<k.right&&r.right>k.left&&r.top<k.bottom&&r.bottom>k.top))continue;
+          this.faces.push({sticker:word,points:[],x:p[0],y:p[1],angle,width,height,font,depth:v[2],layer:2,order:this.faces.length,
+            color:ink?'#fff5d9':gum?'#fff4cf':'#eae6ff',ink:ink?'#30282d':gum?'#9d285d':'#4b426e',opacity:s.reducedMotion?.8:Math.min(1,(.85-earned.age)/.18)});
+          this.cost+=3;this.chaosSticker=word;break;
+        }
+      }
+      // Lunar comets linger alongside the jump, never in the paired contact lane.
+      if(moon && !s.reducedMotion && !s.player.grounded && s.sceneTime>1.5)for(let i=0;i<6;i++) {
+        const side=i%2?1:-1,t=i/6,x=side*(4.2+t*1.8),y=s.player.height*(1-t)*.48+.2,z=-2-t*4;
+        emit([[x,y,z],[x+side*.15,y+.105,z],[x+side*.9,y-.18,z-1.5]],colors[i%3],.72*(1-t));
+      }
+      // Small orbiting stones remain anchored beyond the track, not falling hazards.
+      if(moon && !s.reducedMotion)for(let i=0;i<4;i++) {
+        const a=s.simTime*.7+i*2,kick=this.clearWave(s,8+i*3),x=(i%2?1:-1)*(7.2+Math.cos(a)*.7),y=.6+Math.sin(a)*.25+kick,z=4+i*4;
+        emit([[x-.2,y,z],[x,y+.22,z],[x+.3,y+.02,z],[x+.1,y-.15,z]],colors[1],.8);
+      }
+      this.opacity=1;
+    }
     contactAccents(s,painted) {
       // A short (.36 s) contact accent, radius <= 1.3: two arcs for a clear, two
       // more for a big clear. Painted landings are soft cream dust and umber strokes.
       this.layer=3;
       for(const effect of s.effects) {
-        if(effect.puff)continue;
+        if(effect.puff || effect.slam || effect.scene!==s.scene)continue;
         const t=effect.age/.36;if(t>=1)continue;
         const ease=1-(1-t)*(1-t),z=effect.z;
         const arc=(from,to,radius,thick,color,alpha)=>{
@@ -870,7 +955,7 @@
       const e=s.extreme,w=this.w,h=this.h,k=this.extremeScale,kx=this.extremeX;
       const cx=this.cam.cx,cy=this.cam.cy,z=e.cactusZ*.45;
       const ink='#17102e',cyan='#60ffeb',lime='#d2ff67',pink='#ff64d8';
-      let commands=1;
+      let commands=1;this.extremeChaosCount=0;
       c.fillStyle='#110d2b';c.fillRect(0,0,w,h);
       c.lineCap='round';c.lineJoin='round';
       // A stable notebook of small stars, two quiet sizes; no grain or blur pass.
@@ -930,7 +1015,8 @@
       const unit=this.extremeUnit;
       const hero=(height,travel,opacity=1)=>{
         const x=cx+travel*.45*kx,y=cy-height*k;
-        c.save();c.translate(x,y);c.scale(unit,unit);c.globalAlpha=opacity;
+        const recoil=s.reducedMotion?0:Math.sin(clamp(e.recoilAge/.22)*Math.PI)*(1-clamp(e.recoilAge/.22));
+        c.save();c.translate(x-recoil*unit*.13,y);c.scale(unit*(1+recoil*.08),unit*(1-recoil*.06));c.globalAlpha=opacity;
         // The same anatomy as the sculpted and painted heroes: three dorsal spikes.
         const spikes=new Path2D('M -.86 -1.17 L -.86 -1.42 L -.62 -1.2 Z M -.55 -1.2 L -.5 -1.5 L -.3 -1.25 Z M -.24 -1.36 L -.12 -1.7 L .02 -1.58 Z');
         stroke(spikes,lime,ink,.06);
@@ -959,9 +1045,30 @@
       const puffs=e.phase==='rewind'?[e.puff]:s.effects;
       for(const puff of puffs)if(puff && puff.age<.65 && (e.phase==='rewind'||puff.puff)) {
         const t=puff.age/.65,x=cx+puff.z*kx-unit*(1.1+t),y=cy-puff.height*k-unit*.6;
-        c.save();c.translate(x,y);c.scale(unit*(.35+t*.6),unit*(.35+t*.6));c.globalAlpha=(1-t)*.65;
+        c.save();c.translate(x,y);c.scale(unit*(.40+t*.85),unit*(.40+t*.65));c.globalAlpha=(1-t)*.65;
         const cloud=new Path2D('M -1 0 C -1.6 -.7 -.8 -1.3 -.3 -.9 C .2 -1.5 1 -.9 .8 -.4 C 1.6 0 .8 .8 .3 .5 C -.3 1.2 -1 .7 -1 0 Z');
         stroke(cloud,'#302351',puff.seed%2?cyan:pink,.08);c.restore();
+      }
+      if(e.cleared && e.contact && ['payoff','rewind'].includes(e.phase)) {
+        const reverse=e.phase==='rewind',progress=reverse?1-e.rewindPosition:clamp(e.time/.55);
+        const fade=reverse?(1-e.rewindPosition)*.6:1-clamp((e.time-1)/.4);
+        const n=s.reducedMotion?4:24;this.extremeChaosCount=n;
+        c.save();c.globalAlpha=fade;c.lineWidth=2.2;
+        // Side gutters: neither the hero's face nor TOP 24 lives here.
+        for(let i=0;i<n;i++) {
+          const side=i%2,travel=s.reducedMotion?.2:progress;
+          const x=(side?w*.91:w*.055)+(side?-1:1)*Math.sin(i*4.1)*travel*w*.045;
+          const y=this.meter().bottom+42+(h-this.meter().bottom-190)*(i/n)+Math.sin(i)*travel*34;
+          c.strokeStyle=[pink,cyan,lime][i%3];c.beginPath();c.moveTo(x,y);c.lineTo(x+(side?-1:1)*(5+travel*(i%3?16:32)),y+(i%2?1:-1)*(5+travel*12));c.stroke();commands++;
+        }
+        if(!reverse) {
+          const size=Math.min(28,w*.052),x=w*.70,y=Math.max(this.meter().bottom+40,h-130);
+          c.translate(x,y);c.rotate(s.reducedMotion?0:-.10);
+          c.font='900 '+size+'px ui-monospace, monospace';c.textAlign='center';
+          c.fillStyle=lime;c.fillRect(-size*3.1,-size, size*6.2,size*1.5);
+          c.fillStyle=ink;c.fillText('OVERKILL!',0,0);commands+=2;
+        }
+        c.restore();
       }
       // A deferred hero (drawn above the outgoing world) reports its own commands.
       if(showHero==='defer'){this.deferredNeon=()=>{const before=commands;c.lineCap='round';c.lineJoin='round';const b=hero(e.visualHeight,e.visualZ);this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:b};this.neonFoot={x:cx+e.visualZ*.45*kx,y:cy-e.visualHeight*k,height:2.72*unit};return commands-before;};}
@@ -985,7 +1092,7 @@
     }
     renderWorld(s,live,medium,target,showHero=true) {
       this.medium=medium;this.opacity=1;
-      if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target,showHero),images:0,resolution:[target.canvas.width,target.canvas.height]};
+      if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target,showHero),chaosCount:this.extremeChaosCount,images:0,resolution:[target.canvas.width,target.canvas.height]};
       const w=this.w,h=this.h,c=target;
       c.imageSmoothingEnabled=true;c.imageSmoothingQuality=medium==='ai-gouache'?'high':'low';
       const e = smooth(s.extrusion);
@@ -1006,13 +1113,15 @@
       if(this.medium==='lunar')this.lunarSky(c);
       if(this.medium==='ai-gouache')this.paintedSky(c);
       this.faces.length = 0;this.cost=0;this.gameplay=false;this.sink=null;this.live=live;
-      this.world(s);this.gameplayWorld(live,showHero);
+      this.world(s);this.chaosWorld(s);
+      if(s!==live)this.contactAccents(s,['ai-gouache','gouache-fallback'].includes(medium));
+      this.gameplayWorld(live,showHero);
       // Ground/decal passes avoid average-depth floor polygons cutting through feet.
       // Above-ground meshes retain stable camera-space painter ordering.
       this.faces.sort((a,b)=>a.layer-b.layer || b.depth-a.depth || a.order-b.order);
       let images=(this.medium==='ai-gouache'?1:0)+this.drawFaces(c,this.faces);
       c.globalAlpha=1;
-      return {commands:this.cost,images,resolution:[target.canvas.width,target.canvas.height]};
+      return {commands:this.cost,chaosCount:this.chaosCount,sticker:this.chaosSticker,images,resolution:[target.canvas.width,target.canvas.height]};
     }
     drawFaces(c,faces) {
       c.lineJoin='round';
@@ -1031,6 +1140,12 @@
       for (const f of faces) {
         // A cross-medium handoff draws the one incoming hero above the fading world.
         if(f.hero&&this.deferred&&faces===this.faces){this.deferred.push(f);continue;}
+        if(f.sticker) {
+          c.save();c.globalAlpha=f.opacity;c.translate(f.x,f.y);c.rotate(f.angle);
+          c.fillStyle=f.color;c.strokeStyle=f.ink;c.lineWidth=1.5;
+          c.fillRect(-f.width/2,-f.height/2,f.width,f.height);c.strokeRect(-f.width/2,-f.height/2,f.width,f.height);
+          c.font='900 '+f.font+'px ui-monospace, monospace';c.textAlign='center';c.textBaseline='middle';c.fillStyle=f.ink;c.fillText(f.sticker,0,1);c.restore();continue;
+        }
         if(f.image){c.globalAlpha=f.opacity??1;this.texture(c,f);images+=f.units;continue;}
         if(f.group){for(const part of f.group)fill(part,part.opacity??1);continue;}
         fill(f,f.opacity??1);
@@ -1141,6 +1256,16 @@
         old.sceneTime+=dt;old.simTime=s.simTime;old.distance+=advance;old.sceneDistance+=advance;old.player=s.player;
         for(const m of old.monuments||[]){m.age+=dt;m.z-=advance*.44;}
         for(const effect of old.effects||[])effect.age+=dt;
+        // The final earned landing can happen between the last outgoing render
+        // and enter(). Keep that actual event in its original medium, not the
+        // quiet incoming world. Copy only on handoff creation, after aging the
+        // previous frame: new events retain their exact simulation age.
+        if(this.handoff.start===s.simTime)for(const effect of s.effects) {
+          if(effect.scene!==old.scene)continue;
+          const previous=old.effects.find(e=>e.scene===effect.scene&&e.seed===effect.seed&&!!e.slam===!!effect.slam&&!!e.puff===!!effect.puff);
+          if(previous)Object.assign(previous,effect);
+          else {old.effects.push({...effect});if(old.effects.length>8)old.effects.shift();}
+        }
         // A painted world leaving for EXTREME keeps its own camera while it fades.
         const ownCamera=s.scene==='extreme'&&old.scene!=='extreme';
         if(ownCamera)this.camera(old);
@@ -1160,6 +1285,10 @@
       this.remember(s);
       if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
       const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
+      const burst=s.effects.findLast(effect=>effect.big&&effect.scene===s.scene);
+      if(reset)this.lastChaosBurst=null;
+      if(burst)this.lastChaosBurst={scene:s.scene,time:s.simTime-burst.age,seed:burst.seed};
+      this.stats.chaos={count:incoming.chaosCount||0,sticker:incoming.sticker||null,tier:this.chaosTier(s),lastBurst:this.lastChaosBurst};
       this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
       this.stats.worldResolution=incoming.resolution;
       this.stats.budgets.used=incoming.commands;
