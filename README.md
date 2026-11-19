@@ -113,12 +113,17 @@ centre and solid cut edges show the cel soles lifting away and landing toward a
 stationary, upward-facing lens. The pack and city stay overhead for the whole
 build. Coalescence rises back to its original framing within 1.20 s. Neither
 view changes the take-off line, contacts, speed, jump arc, or stage clock.
-In Jelly, only the first floor cactus on each lap gets an eye. Its paired cherry
-canopy is visible before the cut. The lens rides inside the cactus crown and
-looks back at the approaching dino; the player still controls both the bounce
-and the drop. After the feet pass overhead, a short dissolve restores the
-ordinary view by 0.115 s after the floor centre, in time to see the real canopy
-and decide when to drop. Hitting the cactus ends the shot without retargeting.
+Once per Jelly lap, the camera looks back at the first floor cactus and its
+paired cherry canopy **from the position two cacti farther ahead**. This is the
+third floor station: the first floor's depth plus two authored 1.45-second gaps
+at the current lap speed. It is a presentation anchor, not a third cactus spawned
+early. The raised lens looks back from inside the lane. Where a nearer canopy
+would cover the dino, its fill goes clear locally but its actual underside
+outline and supports remain solid. The player still controls the bounce and drop.
+The view stays through a nonfatal floor hit. It normally dissolves back once
+the canopy has resolved and the dino is on the ground. A late/missed drop cannot delay
+the next cue: the 0.18-second return finishes at least half a second before the
+second floor centre. Subsequent cells keep their ordinary view.
 Reduced motion keeps the physical viewpoints and real jump height without an
 orbit, idle sway, head bob, impact shake or a pulsing lens. The existing
 reduced-motion scenery, landing response and shorter medium dissolve still apply.
@@ -230,7 +235,11 @@ close-camera/top/hero bounds, and opening/handoff geometry. During the
 perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
 one unit along the viewing direction (`target`), `mode`, and `blend`. During
 `cactus-eye` it also reports the first cell's `ordinal`, `targetId`, `roofId`,
-`phase`, `targetZ`, `aim` and `exitReason`. The blend is the contribution of
+`phase`, `targetZ`, `aim`, and `floorOutcome` (`hit` or `pass` once resolved).
+During the return, `exitReason` distinguishes `roof-resolved-grounded` from the
+`next-cue` deadline if the player is still airborne. `cameraAnchorOrdinal` (3),
+`upcomingTargetId`, `anchorZ` and `anchorSpawned` describe the separate camera
+station; they are not live obstacle probes. The blend is the contribution of
 the reverse lens, not a change to the simulation or the control mapping. The
 hero and obstacle probes share a `cameraSpace` (`jelly` or `cactus-eye`)
 during this shot, identifying the lens that owns the visible hero. If the foot

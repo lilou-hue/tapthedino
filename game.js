@@ -746,7 +746,9 @@
     const next=s.obstacles.find(o=>!o.resolved),a=s.flatAnchor;
     // A restart can display the native page before its hidden renderer warmup.
     const camera=renderer.lastRun===s.run?renderer.stats.transition.camera??null:null;
-    return freeze({
+    // Nested lens/probe bounds and authored intervals belong to the live renderer
+    // and simulation. Freeze a detached diagnostic, never those shared records.
+    return freeze(structuredClone({
       version:7,speed:s.speed,speedMultiplier:s.speedMultiplier,approachTTC:s.approachTTC,distance:s.distance,userPaused,focusPaused,clearedTail:s.clearedTail.map(o=>({...o})),health:s.health,maxHealth:s.maxHealth,recovery:s.recovery,lap:s.lap,variant:s.variant,multiplier:s.multiplier,lapEarned:s.lapEarned,sessionEarned:s.earned,lapScore:s.lapScore,banked:s.banked,impact:s.impact,burst:s.burst,
       effectCounts:{puffs:s.effects.filter(e=>e.puff).length,impacts:s.effects.length,bursts:s.effects.filter(e=>e.big).length,transitions:s.transitions.length},mode:s.mode,scene:s.scene,sceneTime:s.sceneTime,success:s.success,target:s.target,
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
@@ -767,7 +769,7 @@
         pageOpacity:Number(openingBody.style.opacity||1),pageVisible:!opening.hidden},
       handoff:{anchor:a?{cx:a.cx,cy:a.cy,scale:a.scale,left:a.left,width:a.width,heroX:a.heroX}:null,heroFrame:s.heroFrame,
         nativeRatio:renderer.native,canvasRatio:renderer.dpr,hero:renderer.stats.hero?{...renderer.stats.hero}:null,hudAlpha:renderer.stats.hudAlpha??0}
-    });
+    }));
   }
   const debug={get state(){return snapshot();}};
   if(debugMode) {

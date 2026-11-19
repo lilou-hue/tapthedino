@@ -222,7 +222,9 @@
         const id=s.serial-s.phraseSpawn*2+1, floor=s.obstacles.find(o=>o.id===id&&o.kind==='ground');
         const roof=s.obstacles.find(o=>o.id===id+1&&o.kind==='ceiling');
         if(!floor||!roof)return null;
-        this.cell={lap:s.lap,floor,roofId:roof.id,z:floor.z,time:s.simTime};
+        const gaps=s.stageConfig.intervals;
+        this.cell={lap:s.lap,floor,roof,z:floor.z,time:s.simTime,gap:gaps[0],
+          offset:(gaps[0]+(gaps[1]??gaps[0]))*s.speed,anchorId:id+2*s.stageConfig.members.length};
       }
       const cell=this.cell,floor=cell.floor;
       // The read-only floor reference retains its final physics position even if
@@ -236,18 +238,27 @@
       }
       const z=cell.z-(s.simTime-cell.time)*s.speed,tt=z/s.speed;
       const enter=smooth((Math.min(1.1,s.approachTTC-.18)-tt)/.18);
-      const exit=cell.reason==='hit'?smooth((s.simTime-cell.time)/.11):smooth((-tt-.005)/.11);
+      // Let the player see the whole paired decision, including a nonfatal miss.
+      // A missed drop can leave the hero airborne: reserve the next take-off cue.
+      const after=-tt,release=s.stageConfig.members[1]+.05,returnTime=.18,latest=cell.gap-.50-returnTime;
+      if(cell.exitAt==null&&after>=release&&cell.roof.resolved&&s.player.grounded)cell.exitAt=after;
+      const exit=smooth((after-Math.min(cell.exitAt??Infinity,latest))/returnTime);
+      if(exit>=1)cell.spent=true;
       const blend=enter*(1-exit);
       if(!blend||this.handoff)return null;
-      return {mode:'cactus-eye',ordinal:1,targetId:floor.id,roofId:cell.roofId,targetZ:z,
-        phase:exit>0?'exit':enter<1?'entry':'eye',blend,exitReason:cell.reason||null};
+      const anchor=s.obstacles.find(o=>o.id===cell.anchorId&&o.kind==='ground');
+      return {mode:'cactus-eye',ordinal:1,targetId:floor.id,roofId:cell.roof.id,targetZ:z,
+        cameraAnchorOrdinal:3,upcomingTargetId:cell.anchorId,anchorZ:anchor?.z??z+cell.offset,anchorSpawned:!!anchor,
+        phase:exit>0?'exit':enter<1?'entry':'eye',blend,floorOutcome:cell.reason||null,
+        exitReason:exit>0?(cell.exitAt!=null&&cell.exitAt<=latest?'roof-resolved-grounded':'next-cue'):null};
     }
     cactusCamera(shot,s) {
-      // Inside the crown of the trunk, looking back along the lane. Lift the lens
-      // slightly into the passing feet without ever turning around behind them.
-      const eye=[-.165,1.27,shot.targetZ+.14],pitch=mix(.08,.59,smooth((.34-shot.targetZ/s.speed)/.33));
-      const forward=norm([.045,Math.tan(pitch),-1]),right=norm(cross(forward,[0,1,0]));
-      this.cam={eye,forward,right,up:cross(right,forward),b:1,near:.075,focal:Math.min(this.w*.68,this.h*.39),cx:this.w*.5,cy:this.h*.52};
+      // Look back along the lane from the third floor station. The eye stays
+      // inside the runway; neither pitch nor focal length follows a jump.
+      const eye=[-2.8,6.0,shot.anchorZ],aim=[0,1.9,shot.targetZ*.45];
+      const forward=norm(sub(aim,eye)),right=norm(cross(forward,[0,1,0]));
+      const unit=Math.min(51,this.w*.126,(this.h-this.hudTop-this.hudSize-98)/7.8);
+      this.cam={eye,forward,right,up:cross(right,forward),b:1,focal:unit*Math.hypot(this.cell.offset,eye[0]),cx:this.w*.47,cy:this.h*.55};
       this.pov=shot;
     }
     perspective(s,nightEyeY) {
@@ -926,10 +937,10 @@
         this.opacity=1;
       }
     }
-    canopy(o) {
+    canopy(o,heroBounds) {
       const z=o.z,y=o.ceilingHeight;
-      // The rounded cherry slab has an opaque, flat underside at EXACTLY the
-      // published head-contact plane. Supports stay beyond the lane's margins.
+      // The rounded slab's flat underside is exactly the published head-contact
+      // plane. Supports stay beyond the lane's margins.
       this.layer=4;
       const rim=[213,55,108],top=[247,139,174],side=[157,43,90];
       for(const x of [-3.2,3.2]) {
@@ -937,6 +948,7 @@
         this.polygon(post.map(([a,b])=>[x+a,b,z]),rim);
         this.polygon([[x-.07,.18,z-.02],[x-.02,.18,z-.02],[x-.02,y+.3,z-.02],[x-.07,y+.3,z-.02]],top);
       }
+      const slab=this.faces.length;
       this.polygon([[-3.0,y,z-.4],[3.0,y,z-.4],[3.0,y,z+.4],[-3.0,y,z+.4]],side,1,[111,36,72]);
       const front=[];
       for(const [cx,cy,start] of [[3.0,y+.3,-Math.PI/2],[3.0,y+.36,0],[-3.0,y+.36,Math.PI/2],[-3.0,y+.3,Math.PI]])
@@ -944,6 +956,19 @@
       this.polygon(front,rim,1,[142,43,85]);
       this.polygon([[-2.95,y+.66,z-.4],[2.95,y+.66,z-.4],[2.95,y+.66,z+.4],[-2.95,y+.66,z+.4]],top);
       this.polygon([[-2.65,y+.51,z-.41],[1.8,y+.51,z-.41],[2.2,y+.58,z-.41],[-2.4,y+.58,z-.41]],[255,197,211]);
+      // Only a slab between this lens and the hero gets a local clear spot.
+      // The underside outline, posts and ground markers keep their original materials.
+      if(heroBounds&&z>0) {
+        const {left,right,top,bottom}=heroBounds,x=(left+right)/2,y=(top+bottom)/2;
+        const r=Math.hypot(right-left,bottom-top)*.59;
+        for(let i=slab;i<this.faces.length;i++) {
+          const f=this.faces[i],p=f.points;
+          if(p.every(q=>q[0]<x-r)||p.every(q=>q[0]>x+r)||p.every(q=>q[1]<y-r)||p.every(q=>q[1]>y+r))continue;
+          const tint=this.ctx.createRadialGradient(x,y,r*.73,x,y,r);
+          tint.addColorStop(0,f.color.replace('rgb(','rgba(').replace(')',',.08)'));
+          tint.addColorStop(1,f.color);f.fill=tint;
+        }
+      }
       this.layer=1;this.opacity=.65;
       for(const x of [-1.1,0,1.1])this.polygon([[x-.3,.03,z-.4],[x+.3,.03,z-.4],[x+.3,.03,z+.4],[x-.3,.03,z+.4]],[178,80,121]);
       this.opacity=1;
@@ -1270,12 +1295,16 @@
       const probes=s.obstacles.map(o=>({id:o.id,kind:o.kind,z:o.z,
         foot:this.project(this.view([0,0,o.z])),
         top:this.project(this.view([0,o.kind==='ceiling'?o.ceilingHeight:1.4,o.z]))}));
-      for(const o of [...s.obstacles,...(s.clearedTail||[])]) {
-        if(o.z<=-8)continue;
+      const drawn=[...s.obstacles,...(s.clearedTail||[])];
+      // The ordinary lens retires a passed cactus at -8. In the reverse lens
+      // it is still down the road: finish drawing that cleared ID, never a hit.
+      if(this.pov?.mode==='cactus-eye'&&this.cell.floor.clear&&!drawn.some(o=>o.id===this.cell.floor.id))
+        drawn.push({...this.cell.floor,z:this.pov.targetZ});
+      for(const o of drawn) {
+        if(o.z<=-8&&!(this.pov?.mode==='cactus-eye'&&o.id===this.pov.targetId))continue;
         // Clearance is a score flag, never a shrink/eat animation. Keep full-height geometry.
-        const own=this.pov?.mode==='cactus-eye'&&o.id===this.pov.targetId;
         if(modern||warm) {
-          if(!own&&s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
+          if(s.extrusion>.05)this.softShadow(0,o.z,.5,.3,warm?[118,72,56]:[3,4,14],warm?.3:.5);
         } else {
           this.layer=3;
           this.opacity=shadow;
@@ -1283,13 +1312,7 @@
           this.opacity=1;
         }
         this.layer=4;const first=this.faces.length;
-        if(own){
-          // Inside the crown: don't draw the trunk around the lens. Its two
-          // real branches can still enter the corners; never billboard them.
-          const tones=[[112,36,74],[214,45,99],[222,124,155]];
-          const at=(u,v,d)=>[-u,v,o.z+d];
-          for(const arm of [CACTUS.slice(2,10),CACTUS.slice(14,22)])this.extrude(arm,at,cactusTone,tones);
-        } else if(o.kind==='ceiling')this.canopy(o);
+        if(o.kind==='ceiling')this.canopy(o,this.pov?.mode==='cactus-eye'&&showHero?this.stats.hero?.bounds:null);
         else if(this.medium==='pixel-16')this.windowBox(0,0,o.z,1.8,1.25,o.id,false,true);
         else this.cactus(o.z,1,1,0,0,modern?null:s.scene==='dream'?[227,115,122]:s.scene==='stampede'?[44,99,112]:[89,223,213]);
         if(this.pov&&s===this.scenery){const probe=probes.find(p=>p.id===o.id);
@@ -1549,7 +1572,7 @@
       const path=points=>{c.beginPath();c.moveTo(...points[0]);for(let i=1;i<points.length;i++)c.lineTo(...points[i]);c.closePath();};
       const span=points=>{let left=Infinity,right=-Infinity;for(const p of points){if(p[0]<left)left=p[0];if(p[0]>right)right=p[0];}return right-left;};
       const fill=(f,opacity)=>{
-        c.globalAlpha=opacity;path(f.points);c.fillStyle=f.color;c.fill();
+        c.globalAlpha=opacity;path(f.points);c.fillStyle=f.fill||f.color;c.fill();
         // Translucent decals are never stroked (no compounding edges).
         if(opacity<.999)return;
         // Ground is a continuous material, never a wireframe. Internal joints are quiet.
@@ -1617,7 +1640,7 @@
       if(this.pov?.mode==='cactus-eye' && this.pov.targetZ>0) {
         c.save();c.globalAlpha*=this.pov.blend*smooth(this.pov.targetZ/(s.speed*.18));
         c.font='600 '+(w<450?10:12)+'px ui-monospace, monospace';c.textAlign='center';
-        c.fillStyle=ink;c.fillText('CACTUS CAM · YOU STILL CONTROL THE DINO',w/2,h-this.chapterBottom-32);c.restore();
+        c.fillStyle=ink;c.fillText('TWO CACTI AHEAD · YOU CONTROL THE DINO',w/2,h-this.chapterBottom-32);c.restore();
       }
       // The original dinosaurOS bars sit below the shared HUD band, never under it.
       if(this.hudDesktop>.001) {
@@ -1713,8 +1736,7 @@
       let eyePass,eyeCamera,eyeProbes,ordinaryHero=true;
       if(shot)this.cactusCamera(shot,s);
       if(dissolve){
-        // Render the reverse lens first: late in the pass its feet can already
-        // be outside the frustum. Let the ordinary view own the one visible hero.
+        // Render the reverse lens first; the dominant view owns the visible hero.
         this.eyeHeroVisible=false;eyeCamera=this.cam;
         eyePass=this.renderWorld(s,s,desired,this.blendContext,shot.blend>=.5);
         ordinaryHero=!this.eyeHeroVisible;eyeProbes=this.stats.obstacleProbes;
