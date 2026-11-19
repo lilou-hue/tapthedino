@@ -113,17 +113,14 @@ centre and solid cut edges show the cel soles lifting away and landing toward a
 stationary, upward-facing lens. The pack and city stay overhead for the whole
 build. Coalescence rises back to its original framing within 1.20 s. Neither
 view changes the take-off line, contacts, speed, jump arc, or stage clock.
-Once per Jelly lap, the camera looks back at the first floor cactus and its
-paired cherry canopy **from the position two cacti farther ahead**. This is the
-third floor station: the first floor's depth plus two authored 1.45-second gaps
-at the current lap speed. It is a presentation anchor, not a third cactus spawned
-early. The raised lens looks back from inside the lane. Where a nearer canopy
-would cover the dino, its fill goes clear locally but its actual underside
-outline and supports remain solid. The player still controls the bounce and drop.
-The view stays through a nonfatal floor hit. It normally dissolves back once
-the canopy has resolved and the dino is on the ground. A late/missed drop cannot delay
-the next cue: the 0.18-second return finishes at least half a second before the
-second floor centre. Subsequent cells keep their ordinary view.
+Jelly turns to the dinosaur’s side for **all six** floor-and-roof pairs. The
+hero runs toward screen right; the floor cactus and the cherry roof move left.
+Looking a little down the lane keeps distant hazards visible through ordinary
+perspective, without moving their world positions. The camera rises by 10% of
+the actual bounce height (at most 0.42 units); its pitch and lens stay fixed.
+The roof is open on the camera side so you can see the dino drop below the solid
+underside. Ink settles into this shot in 1.20 s, and Painted returns to its own
+framing in 1.20 s. Reduced motion uses the same side view with no jump follow.
 Reduced motion keeps the physical viewpoints and real jump height without an
 orbit, idle sway, head bob, impact shake or a pulsing lens. The existing
 reduced-motion scenery, landing response and shorter medium dissolve still apply.
@@ -169,6 +166,11 @@ stampede 4) and lap, gaps scaled by `1 / sqrt(speedMultiplier)` with a 1 s floor
 | Stampede | 7.7 / 18 | Rhythm 4, fixed **16 s** build, spawner open through **13.5 s**, nine-clear target. |
 | Coalescence | — | 2.2 s, no hazards and no new jumps; exits grounded into the Moon. |
 | Moon | 6 / 5, no buffer | Three pairs, **0.75 s** within a pair, **3 s** between pairs; one float clears both and the shared landing banks **two credits once**. |
+
+The Jelly floor cactus stands 1.4 world units tall. Its existing contact rule
+checks the foot against 0.58, not the silhouette: a late but legal jump can clip
+the drawn crown. The canopy, by contrast, puts its underside at the actual
+head-contact height. Neither rule depends on which way the camera is facing.
 
 Deadlines stop the spawner; they never erase hazards. Every presented hazard must
 resolve, and the player must be grounded, before a stage exits. Jelly/Moon/Ink/
@@ -234,18 +236,8 @@ EXTREME state (forward cue times and first crossing), impact audio counts,
 close-camera/top/hero bounds, and opening/handoff geometry. During the
 perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
 one unit along the viewing direction (`target`), `mode`, and `blend`. During
-`cactus-eye` it also reports the first cell's `ordinal`, `targetId`, `roofId`,
-`phase`, `targetZ`, `aim`, and `floorOutcome` (`hit` or `pass` once resolved).
-During the return, `exitReason` distinguishes `roof-resolved-grounded` from the
-`next-cue` deadline if the player is still airborne. `cameraAnchorOrdinal` (3),
-`upcomingTargetId`, `anchorZ` and `anchorSpawned` describe the separate camera
-station; they are not live obstacle probes. The blend is the contribution of
-the reverse lens, not a change to the simulation or the control mapping. The
-hero and obstacle probes share a `cameraSpace` (`jelly` or `cactus-eye`)
-during this shot, identifying the lens that owns the visible hero. If the foot
-anchor is behind the near plane, its projection is omitted even if a toe or
-part of the body is still visible. In these
-shots each live obstacle probe also has camera-space foot depth `viewZ` and
+`jelly-side`, `jumpFollow` is the vertical translation of the lens in world units
+(zero on the ground and in reduced motion). In these shots each live obstacle probe also has camera-space foot depth `viewZ` and
 `visibleBounds`: viewport-clipped bounds of the emitted cactus geometry, or
 `null` outside view. They exclude the shadow and take-off line and do not claim
 to measure occlusion by other objects. `?debug` additionally exposes
