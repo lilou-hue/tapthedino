@@ -136,8 +136,14 @@
         const k=Math.max(w/image.width,horizon/312,(h-horizon)/(image.height-312));
         context.setTransform(sky.width/w,0,0,sky.height/h,0,0);
         context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
-        context.drawImage(image,(w-image.width*k)/2,horizon-312*k,image.width*k,image.height*k);
-        this.skyImage=image;
+        this.valleyCrop=[(w-image.width*k)/2,horizon-312*k,image.width*k,image.height*k];
+        context.drawImage(image,...this.valleyCrop);
+        // Cache the soft distant lip once, rather than fading adjacent ground
+        // triangles (their overlapping antialiased edges would print a grid).
+        const wash=context.createLinearGradient(0,h*.11,0,h*.32);
+        wash.addColorStop(0,'#fff');wash.addColorStop(1,'transparent');
+        context.globalCompositeOperation='destination-in';context.fillStyle=wash;context.fillRect(0,0,w,h);
+        context.globalCompositeOperation='source-over';this.skyImage=image;
       }
     }
     paintedSky(c) {
@@ -149,22 +155,22 @@
       // [azimuth, distance, eye height, target height, target z, screen y of target(, screen x of feet)]
       // Stage poses; the side lens aims down the runway but sees the sculpted eye.
       const base=[-.36,this.w<600?15:13,5.2,.9,6,.43];
-      return ({corkscrew:[-.14,18,3.4,0,7,.46],dream:[-.42,21,18,0,7,.45],
+      return ({corkscrew:[-.14,18,3.4,0,7,.46],dream:[-.34,10,20,0,5,.45,.37],
         desktop:[-.12,18,8,.4,8,.46],crash:[-.12,18,8,.4,8,.46],
         stampede:[-.14,24,10,1,11,.47],coalesce:[-.12,24,8,3,14,.47],
-        jelly:[-.74,10.15,2.8,1.4,3.4,.53,.27],moon:[-.32,19,6,1,6,.46,.36],collapse:[-.30,15,5.5,1,6,.45,.5]})[scene]||base;
+        jelly:[-.74,10.15,2.8,1.4,3.4,.53,.27],moon:[-.98,8.2,2.2,.8,2,.48,.20],collapse:[-.30,15,5.5,1,6,.45,.5]})[scene]||base;
     }
     camera(s,nightEyeY) {
       this.s=s;this.hero=false;this.pov=null;
       if(s.scene==='extreme') {
         this.neonCamera(s);return;
       }
-      const b=s.projectionBlend, blend=smooth(s.sceneTime/1.2);
+      const b=s.projectionBlend, blend=smooth(s.sceneTime/(s.scene==='moon'?.85:1.2));
       const from=this.pose(s.previousScene), to=this.pose(s.scene);
-      const pose=to.slice(0,6).map((v,i)=>mix(from[i],v,blend));
+      const desk=s.scene==='desktop',pose=to.slice(0,6).map((v,i)=>desk?v:mix(from[i],v,blend));
       if(s.scene==='collapse')pose.splice(0,6,...this.pose('collapse').slice(0,6));
       const jelly=s.scene==='jelly',leavingJelly=s.previousScene==='jelly'&&blend<1;
-      if(s.reducedMotion && !['corkscrew','jelly','moon'].includes(s.scene)) {
+      if(s.reducedMotion && !['corkscrew','jelly','dream','moon'].includes(s.scene)) {
         const stable=this.pose('track');
         for(let i=0;i<pose.length;i++)pose[i]=mix(stable[i],pose[i],leavingJelly?mix(1,.4,blend):.4);
       }
@@ -183,7 +189,7 @@
         cx:mix(a?a.cx:this.w*(this.w<600?.19:.22),this.w*.5,b),cy:mix(a?a.cy:this.h*.70,this.h*pose[5],b)};
       // Poses with an authored foot x frame the hero there; original poses keep their own framing.
       const natural=this.footScreen()[0],offset=p=>p[6]==null?0:this.w*p[6]-natural;
-      this.cam.cx+=(s.scene==='collapse'?offset(this.pose('collapse')):mix(offset(from),offset(to),blend))*b;
+      this.cam.cx+=(s.scene==='collapse'?offset(this.pose('collapse')):desk?offset(to):mix(offset(from),offset(to),blend))*b;
       // A single rigid projected floor frame rotates about the hero's FOOT.
       // Nothing counter-rotates the hero: every jump's screen-space normal turns.
       if(jelly||leavingJelly) {
@@ -199,12 +205,39 @@
         const jumpFollow=jelly&&!s.reducedMotion?k*Math.min(.42,s.player.height*.10):0;
         eye[1]+=jumpFollow; // parallel eye + aim translation; no bob or lens pumping
         this.pov={mode:'jelly-side',blend:k,jumpFollow};
-      } else if(['corkscrew','moon'].includes(s.scene)) {
-        const ink=s.scene==='corkscrew',foot=this.footScreen();
-        const x=this.w*(ink?.5:.36),y=ink?(this.h+70)/2:this.h*.66;
-        const cfg=s.stageConfig,headroom=cfg?cfg.jump*cfg.jump/(2*cfg.gravity)+(cfg.bodyHeight||1.9):6.1;
-        const safeTop=this.hudTop+this.hudSize+48;
-        const maxK=ink?Math.min(this.w*.105,(this.h-130)/7.8,64):Math.min(this.w*.115,Math.max(10,(y-safeTop)/headroom),48);
+      }
+      if(s.scene==='dream') {
+        // Retain the side-view foot at the seam, then settle above the painted page.
+        const foot=this.footScreen(),unit=Math.min(39,this.w*.086,this.h*.084);
+        this.cam.focal*=mix(1,unit/foot[2],blend);
+        const moved=this.footScreen();this.cam.cx+=mix(foot[0],this.w*.37,blend)-moved[0];
+        this.cam.cy+=mix(foot[1],this.h*.72,blend)-moved[1];
+        this.pov={mode:'storybook-overhead',blend};
+      } else if(s.scene==='moon') {
+        const foot=this.footScreen(),y=this.h*.74,safe=this.hudTop+this.hudSize+40;
+        // Finite eye distance compresses the far pair. Size this fixed lens for
+        // a full 3.6-unit float PLUS the head, including a short landscape HUD.
+        const unit=Math.min(51,this.w*.085,(y-safe)/6.3);
+        this.cam.focal*=mix(1,unit/foot[2],blend);
+        const moved=this.footScreen();this.cam.cx+=mix(foot[0],this.w*.20,blend)-moved[0];
+        this.cam.cy+=mix(foot[1],y,blend)-moved[1];
+        const jumpFollow=s.reducedMotion?0:s.player.height*.07*blend;
+        eye[1]+=jumpFollow;this.pov={mode:'lunar-wide',blend,jumpFollow};
+      } else if(desk) {
+        const entry=smooth(s.sceneTime/.85),start=this.desktopFrom;
+        if(start&&entry<1&&this.stats.transition.window){
+          // The client has its own intact camera. On entry its projected hero
+          // starts at the last painted foot, not a foreshortened overhead panel.
+          const f=this.stats.transition.window,foot=this.footScreen();
+          this.cam.focal*=mix(clamp(start.height/(1.85*f.scale*foot[2]),.65,2.2),1,entry);
+          const moved=this.footScreen();
+          this.cam.cx+=mix((start.x-f.x)/f.scale,foot[0],entry)-moved[0];
+          this.cam.cy+=mix((start.y-f.y)/f.scale,foot[1],entry)-moved[1];
+        }
+        this.pov={mode:'desktop-window',blend:entry};
+      } else if(s.scene==='corkscrew') {
+        const foot=this.footScreen(),x=this.w*.5,y=(this.h+70)/2;
+        const maxK=Math.min(this.w*.105,(this.h-130)/7.8,64);
         this.cam.focal*=Math.min(1,maxK/foot[2]);
         const moved=this.footScreen(),amount=smooth(s.sceneTime/1.2);
         this.cam.cx+=(x-moved[0])*amount;this.cam.cy+=(y-moved[1])*amount;
@@ -352,7 +385,12 @@
     imageQuad(image,rect,vertices,anchor=null,billboard=false) {
       if(this.cost>=(this.gameplay?2600:this.sceneryLimit))return;
       const v=vertices.map(p=>this.view(p));
-      if(v.some(p=>p[2]<.35))return;
+      if(v.some(p=>p[2]<.35)){
+        // During the low side → overhead handoff a near ground tile can span
+        // both sides of the eye. Keep its visible painted part, not a hole.
+        if(!billboard&&this.medium==='ai-gouache'&&v.some(p=>p[2]>=.35))this.paintNearTile(image,rect,v);
+        return;
+      }
       const points=v.map(p=>this.project(p));
       if(points.every(p=>p[0]<-2)||points.every(p=>p[0]>this.w+2)||points.every(p=>p[1]<-2)||points.every(p=>p[1]>this.h+2))return;
       const error=Math.hypot(points[0][0]+points[2][0]-points[1][0]-points[3][0],points[0][1]+points[2][1]-points[1][1]-points[3][1]);
@@ -361,6 +399,23 @@
       if(this.cost+units>(this.gameplay?2600:this.sceneryLimit))return;
       this.cost+=units;
       this.faces.push({image,rect,points,billboard,affine,units,opacity:this.opacity??1,depth:anchor?this.view(anchor)[2]:v.reduce((sum,p)=>sum+p[2],0)/4,layer:this.layer,order:this.faces.length});
+    }
+    paintNearTile(image,rect,v) {
+      const c=this.cam,[x,y,w,h]=rect;
+      let tile=this.clipNear(v.map((p,i)=>[...p,x+(i===1||i===2?w:0),y+(i>=2?h:0)]));
+      // Clip in view space, interpolating atlas UVs with each intersection.
+      // Clipping to the four screen edges too avoids enormous affine triangles.
+      for(let side=0;side<4&&tile.length;side++) {
+        const distance=p=>{const d=mix(24,p[2],c.b);return side===0?c.cx*d+p[0]*c.focal:
+          side===1?(this.w-c.cx)*d-p[0]*c.focal:side===2?c.cy*d-p[1]*c.focal:(this.h-c.cy)*d+p[1]*c.focal;};
+        const out=[];let a=tile[tile.length-1],da=distance(a);
+        for(const b of tile){const db=distance(b);if((da<0)!==(db<0))out.push(a.map((n,i)=>mix(n,b[i],da/(da-db))));
+          if(db>=0)out.push(b);a=b;da=db;}tile=out;
+      }
+      const units=tile.length-2;if(units<1||this.cost+units>this.sceneryLimit)return;
+      this.cost+=units;this.faces.push({image,rect,points:tile.map(p=>this.project(p)),uv:tile.map(p=>p.slice(3)),
+        tris:Array.from({length:units},(_,i)=>[0,i+1,i+2]),units,opacity:1,layer:0,
+        depth:tile.reduce((n,p)=>n+p[2],0)/tile.length,order:this.faces.length});
     }
     sprite(frame,x,y,z,width,height) {
       if(!frame)return;
@@ -382,15 +437,16 @@
       return {left:p[0]-anchor[0]*width*k,right:p[0]+(1-anchor[0])*width*k,top:p[1]-anchor[1]*height*k,bottom:p[1]+(1-anchor[1])*height*k,depth:v[2]};
     }
     texture(c,f) {
-      const [x,y,w,h]=f.rect,p=f.points,uv=[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
+      const [x,y,w,h]=f.rect,p=f.points,uv=f.uv||[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
       // A camera-facing sprite is one affine image, not two antialiased transparent halves.
       if(f.affine) {
         c.save();c.transform((p[1][0]-p[0][0])/w,(p[1][1]-p[0][1])/w,(p[3][0]-p[0][0])/h,(p[3][1]-p[0][1])/h,p[0][0],p[0][1]);
         c.drawImage(f.image,x,y,w,h,0,0,w,h);c.restore();return;
       }
-      for(const tri of [[0,1,2],[0,2,3]]) {
+      for(const tri of f.tris||[[0,1,2],[0,2,3]]) {
         const [a,b,d]=tri.map(i=>p[i]),[u,v,t]=tri.map(i=>uv[i]);
         const det=(v[0]-u[0])*(t[1]-u[1])-(t[0]-u[0])*(v[1]-u[1]);
+        if(f.uv&&Math.abs(det)<1e-8)continue;
         const aa=((b[0]-a[0])*(t[1]-u[1])-(d[0]-a[0])*(v[1]-u[1]))/det;
         const bb=((b[1]-a[1])*(t[1]-u[1])-(d[1]-a[1])*(v[1]-u[1]))/det;
         const cc=((d[0]-a[0])*(v[0]-u[0])-(b[0]-a[0])*(t[0]-u[0]))/det;
@@ -587,30 +643,43 @@
       this.layer=0;
       const image=this.art.images.valley,rect=this.art.groundSample;
       // Sampled real brushwork travels along the same bent world-space path.
-      for(let i=-5;i<27;i++) {
+      const columns=Math.max(4,Math.ceil(this.w/Math.max(14,this.footScreen()[2])/12)+1);
+      for(let i=-6;i<18;i++) {
         const z=i*3-s.distance%3;
         // A continuous 48-unit brushwork sample, mirrored at its ends: no repeated strip seams.
         const worldIndex=i+Math.floor(s.distance/3);
         const phase=((worldIndex%16)+16)%16,row=phase<8?phase:15-phase;
-        for(const side of [-1,0,1]) {
-          const x=side*7,cut=[rect[0]+(side+1)*rect[2]/3,rect[1]+row*rect[3]/8,rect[2]/3,rect[3]/8];
+        for(let side=-columns;side<=columns;side++) {
+          // Continue the same brushwork at its native world scale. Each third
+          // strip mirrors; adjacent edges sample the very same painted texels.
+          const index=((side+1)%6+6)%6,flip=index>=3,part=flip?5-index:index;
+          const left=side*7+(flip?3.5:-3.5),right=side*14-left;
+          const cut=[rect[0]+part*rect[2]/3,rect[1]+row*rect[3]/8,rect[2]/3,rect[3]/8];
           const front=z-1.51,back=z+1.51;
           const a=phase<8?front:back,b=phase<8?back:front;
-          const pieces=z<24?2:1;
+          const pieces=z<24&&Math.abs(side)<=1?2:1;
           for(let j=0;j<pieces;j++) {
             const za=mix(a,b,j/pieces),zb=mix(a,b,(j+1)/pieces);
-            this.imageQuad(image,[cut[0],cut[1]+cut[3]*j/pieces,cut[2],cut[3]/pieces],[[x-3.5,-.08,za],[x+3.5,-.08,za],[x+3.5,-.08,zb],[x-3.5,-.08,zb]]);
+            this.imageQuad(image,[cut[0],cut[1]+cut[3]*j/pieces,cut[2],cut[3]/pieces],[[left,-.08,za],[right,-.08,za],[right,-.08,zb],[left,-.08,zb]]);
           }
         }
       }
-      this.layer=2;
+      // A thin ochre wash lets the earned winding path read from overhead.
+      // Keep the original texture showing through it, with a soft brush margin.
+      this.layer=.25;
+      for(let i=-6;i<18;i++) {
+        const a=i*3-s.distance%3-1.5,b=a+3,wa=2.85+.23*Math.sin((a+s.distance)*.26),wb=2.85+.23*Math.sin((b+s.distance)*.26);
+        for(const edge of [0,.35,.72]){this.opacity=.065;this.polygon([[-wa-edge,0,a],[wa+edge,0,a],[wb+edge,0,b],[-wb-edge,0,b]],[255,221,155]);}
+      }
+      this.faces.push({sky:true,layer:.75,depth:0,order:this.faces.length});this.cost++;
+      this.opacity=1;this.layer=2;
       // Light occlusion fix: a near prop fades before its projected silhouette meets
       // the hero's or the next hazard's (the props, rhythm and sizes are unchanged).
       const live=this.live,next=live.obstacles?.find(o=>!o.resolved&&o.kind!=='ceiling'&&o.z>-.4);
       const keep=[this.spriteRect(0,live.player.height,0,2.6,3.1,[.66,.92]),next?this.spriteRect(0,0,next.z,1.6,1.65):null].filter(Boolean);
       const prop=(frame,x,z,width,height)=>{
         const r=this.spriteRect(x,0,z,width,height,frame.anchor);if(!r)return;
-        let alpha=1;
+        let alpha=smooth((r.bottom-this.h*.035)/(this.h*.10));
         for(const k of keep) {
           if(r.depth>k.depth+8)continue;
           alpha=Math.min(alpha,smooth(Math.max(r.left-k.right,k.left-r.right,r.top-k.bottom,k.top-r.bottom)/36));
@@ -620,7 +689,7 @@
       };
       for(let i=0;i<10;i++)for(const side of [-1,1]) {
         const worldIndex=i+Math.floor(s.sceneDistance/8);
-        const z=5+i*8-s.sceneDistance%8,x=side*(7.2+(worldIndex%3)*2.1),size=(3.3+(worldIndex%4)*.8)*smooth((z-1)/8);
+        const z=-3+i*8-s.sceneDistance%8,x=side*(5.4+(worldIndex%3)*1.8),size=(3.3+(worldIndex%4)*.8)*smooth((z+9)/6);
         const names=['mushroom','cactus','boulder','arch'];
         const breath=this.clearWave(s,z)*.17+this.build(s)*.018*Math.sin(s.beat*Math.PI-z*.09);
         // Breathe the actual painted cutouts, not a synthetic replacement or glow pass.
@@ -914,14 +983,13 @@
       // a curved planet mesh. Only the non-colliding backdrop suggests a globe.
       for(let i=-3;i<12;i++) {
         const z=i*10-s.distance%10;
-        this.layer=0;
-        this.polygon([[-110,-.08,z],[110,-.08,z],[110,-.08,z+10.03],[-110,-.08,z+10.03]],i%2?[154,150,175]:[155,151,176]);
         this.layer=1;
         this.polygon([[-2.9,0,z],[2.9,0,z],[2.9,0,z+10.03],[-2.9,0,z+10.03]],[180,176,196]);
         for(const side of [-1,1])this.polygon([[side*2.9,.01,z],[side*3.02,.01,z],[side*3.02,.01,z+10],[side*2.9,.01,z+10]],[211,205,219]);
       }
       this.layer=2;
       for(let i=0;i<8;i++)for(const side of [-1,1]) {
+        if(side===1&&i>=6)continue; // these two far rims belong to the curved backdrop
         const z=i*12+4-s.distance%12,x=side*(7.5+i%3*3),r=1.5+i%3*.6;
         const ring=(rad,y)=>Array.from({length:16},(_,j)=>{const a=j*Math.PI/8;return [x+Math.cos(a)*rad,y,z+Math.sin(a)*rad*.8];});
         this.polygon(ring(r,.015),[121,117,145]);
@@ -939,13 +1007,22 @@
       c.fillStyle='#e1e5e3';c.beginPath();c.ellipse(x-r*.2,y-r*.15,r*.6,r*.3,-.4,0,Math.PI*2);c.fill();
       c.fillStyle='#5d839f';c.beginPath();c.ellipse(x+r*.2,y+r*.28,r*.5,r*.25,.5,0,Math.PI*2);c.fill();
       // Curved distant silhouette is scenery behind the flat playable floor.
-      c.fillStyle='#817b9b';c.beginPath();c.ellipse(w*.56,h*.87,w*.92,h*.43,0,0,Math.PI*2);c.fill();
+      const cx=w*.57,cy=h*1.13,rx=w*1.12,ry=h*.66;
+      c.fillStyle='#9a96af';c.beginPath();c.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);c.fill();
+      // Two far crater rims follow the limb's local tangent. They stay behind
+      // every playable surface; the near craters still travel with the lane.
+      for(const [u,depth,size] of [[.14,.052,.048],[.76,.028,.037]]) {
+        const x=w*u,n=(x-cx)/rx,a=Math.sqrt(1-n*n),y=cy-ry*a+h*depth;
+        const tilt=Math.atan(ry*n/(rx*a)),r=Math.min(w,h)*size;
+        c.fillStyle='#a9a4bb';c.beginPath();c.ellipse(x,y,r,r*.19,tilt,0,Math.PI*2);c.fill();
+        c.fillStyle='#89839f';c.beginPath();c.ellipse(x,y-r*.04,r*.81,r*.12,tilt,0,Math.PI*2);c.fill();
+      }
     }
     palette(scene) {
       return ({corkscrew:[245,231,203],jelly:[179,233,224],dream:[250,208,167],desktop:[77,102,162],crash:[35,64,162],stampede:[105,205,237],coalesce:[105,205,237],moon:[39,36,65],extreme:[17,13,43],breath:[247,247,247]})[scene] || [9,11,29];
     }
     runway(s,style) {
-      const colors={corkscrew:[[245,223,164],[231,206,144],[37,44,64]],dream:[[210,192,231],[226,211,240],[115,88,157]],
+      const colors={corkscrew:[[245,223,164],[231,206,144],[37,44,64]],dream:[[226,174,132],[234,184,141],[166,118,98]],
         desktop:[[127,148,190],[113,132,175],[241,219,150]],stampede:[[255,148,83],[255,171,93],[255,246,206]],
         ending:[[255,148,83],[255,171,93],[255,246,206]]};
       const c=(colors[style]||colors.ending).map(v=>v.slice());
@@ -1188,7 +1265,7 @@
         } else if(warm) {
           // Soft layered contact shadow under the painted hero (no hard brown disc).
           const lift=1/(1+s.player.height*.55);
-          if(painted)this.softShadow(.18,.12,.6*(.7+lift*.3),.72*(.7+lift*.3),[112,70,54],.42*lift);
+          if(painted)this.softShadow(0,0,.6*(.7+lift*.3),.72*(.7+lift*.3),[112,70,54],.42*lift);
           else this.softShadow(0,-.05,.5*(.7+lift*.3),.95*(.7+lift*.3),[118,72,56],.4*lift);
         } else if(s.extrusion>.05){
           this.opacity=shadow*exposure;this.box(0,.025,-.1,.95+s.player.height*.16,.025,1.6+s.player.height*.12,[42,48,69]);this.opacity=1;
@@ -1287,13 +1364,15 @@
       // Close vertical framing never zooms out to expose the giant. The shared
       // orthographic contact plane is compressed horizontally on narrow screens.
       const k=this.h*.095*(s.reducedMotion?1:mix(.94,1,entry));
-      const unit=Math.min(this.h*.065,this.w*.105,54);
+      const finalUnit=Math.min(this.h*.065,this.w*.105,54);
+      const unit=mix(this.neonFrom?.height/2.72||finalUnit,finalUnit,entry);
       // Reserve the full head below the meter, including short landscape screens.
-      const follow=Math.max(0,Math.min(this.h*.24,this.h-90-unit*2.72-(this.meter().bottom+12)));
-      const x=Math.min(k,this.w*.49/10.8),rise=follow*smooth(height/24);
-      // The painted hero's last projected feet are where the neon hero first stands.
+      const bottom=this.h-84;
+      const travel=Math.max(0,Math.min(this.h*.38,bottom-unit*2.72-this.meter().bottom-12));
+      const x=Math.min(k,this.w*.49/10.8),rise=travel*(1-(1-clamp(height/20))**2);
+      // The lunar hero's last projected feet are where the neon hero first stands.
       const from=this.neonFrom||{x:this.w*.34,y:this.h*.77};
-      this.cam={b:0,focal:24*k,cx:mix(from.x,this.w*.27,entry),cy:mix(from.y,this.h-90,entry)+height*k-rise};
+      this.cam={b:0,focal:24*k,cx:mix(from.x,this.w*.27,entry),cy:mix(from.y,bottom,entry)+height*k-rise};
       this.extremeScale=k;this.extremeX=x;this.extremeUnit=unit;
     }
     extremeWorld(s,c,showHero=true) {
@@ -1358,6 +1437,11 @@
       }
       // A thin scribbled floor scrolls below the camera, rather than shrinking the world.
       if(cy<h+8){c.strokeStyle='#7762b0';c.lineWidth=2;c.beginPath();c.moveTo(0,cy+5);c.bezierCurveTo(w*.3,cy+2,w*.7,cy+9,w,cy+3);c.stroke();commands++;}
+      // Marks stay nailed to world altitude; on rewind the same marks rise again.
+      c.strokeStyle='#514372';c.lineWidth=1.5;c.beginPath();
+      for(let n=0;n<=36;n+=2){const y=cy-n*k;if(y<0||y>h)continue;
+        c.moveTo(w*.06,y);c.lineTo(w*.06+(n%4?8:18),y);}
+      c.stroke();commands++;
       const unit=this.extremeUnit;
       const hero=(height,travel,opacity=1)=>{
         const x=cx+travel*.45*kx,y=cy-height*k;
@@ -1396,12 +1480,14 @@
         stroke(cloud,'#302351',puff.seed%2?cyan:pink,.08);c.restore();
       }
       // A deferred hero (drawn above the outgoing world) reports its own commands.
-      if(showHero==='defer'){this.deferredNeon=()=>{const before=commands;c.lineCap='round';c.lineJoin='round';const b=hero(e.visualHeight,e.visualZ);this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:b};this.neonFoot={x:cx+e.visualZ*.45*kx,y:cy-e.visualHeight*k,height:2.72*unit};return commands-before;};}
-      else if(showHero) {
-        const bounds=hero(e.visualHeight,e.visualZ);
+      const currentHero=()=>{
+        const before=commands;c.lineCap='round';c.lineJoin='round';
+        const bounds=hero(e.visualHeight,e.visualZ),x=cx+e.visualZ*.45*kx,y=cy-e.visualHeight*k;
         this.stats.extreme={scale:k,horizontalScale:kx,cameraY:cy,top:cy-24*k,cactusX:cx+z*kx,hero:bounds};
-        this.neonFoot={x:cx+e.visualZ*.45*kx,y:cy-e.visualHeight*k,height:2.72*unit};
-      }
+        this.neonFoot={x,y,height:2.72*unit};this.stats.hero={x,y,pxPerUnit:k,medium:'neon-doodle',bounds};
+        return commands-before;
+      };
+      if(showHero==='defer')this.deferredNeon=currentHero;else if(showHero)currentHero();
       return commands;
     }
     rewards(s,groundOnly=false) {
@@ -1450,19 +1536,41 @@
       if(s.scene==='track')out.nightEyeY=1.99+s.player.height;
       out.player=s.player;out.obstacles=[];out.flatAnchor=s.flatAnchor;out.extreme=s.extreme?{...s.extreme}:null;
     }
+    rasterStep() {return Math.max(2,Math.ceil(Math.max(this.canvas.width,this.canvas.height)/480));}
+    desktopFrame(s,step) {
+      const w=this.w,h=this.h,rx=this.canvas.width/(step*w),ry=this.canvas.height/(step*h);
+      const progress=smooth(s.sceneTime/9.5),initial=w<h?.80:.65;
+      const pixels=w*rx,scale=progress===1?1:Math.min(1,Math.round(mix(initial,1,progress)*pixels)/pixels);
+      const x=Math.round((1-scale)*w*rx*.5)/rx,y=Math.round((1-scale)*h*ry*.68)/ry;
+      return {x,y,w:scale===1?w:Math.round(w*scale*rx)/rx,h:scale===1?h:Math.round(h*scale*ry)/ry,scale,progress};
+    }
+    windowClient(c,f) {
+      c.beginPath();c.rect(f.x,f.y,f.w,f.h);c.clip();c.translate(f.x,f.y);c.scale(f.scale,f.scale);
+    }
+    windowChrome(c,f) {
+      const {x,y,w,h}=f,bar=Math.max(13,Math.min(23,this.h*.035));
+      const rect=(color,x,y,w,h)=>{c.fillStyle=color;c.fillRect(x,y,w,h);};
+      rect('#477a81',0,0,this.w,this.h);rect('#294951',x-3,y-bar+2,w+10,h+bar+6);
+      rect('#dce1d5',x-5,y-bar-4,w+10,h+bar+9);rect('#768992',x-3,y-bar-2,w+7,h+bar+5);
+      rect('#294876',x-2,y-bar,w+4,bar-1);c.fillStyle='#f1f3dd';
+      c.font='bold '+Math.floor(bar*.62)+'px monospace';c.fillText('dinosaurOS / RUNNER',x+7,y-bar*.28);
+      return 6;
+    }
     renderWorld(s,live,medium,target,showHero=true) {
       this.medium=medium;this.opacity=1;this.scenery=s;
       this.modern=MODERN.includes(medium)||(medium==='vector-3d'&&live.scene==='collapse');
       if(medium==='neon-doodle')return {commands:this.extremeWorld(s,target,showHero),images:0,resolution:[target.canvas.width,target.canvas.height]};
       const w=this.w,h=this.h,pixel=medium==='pixel-16';
       // Integer nearest-neighbour expansion happens in BACKING pixels, not CSS pixels.
-      const step=Math.max(2,Math.ceil(Math.max(target.canvas.width,target.canvas.height)/480));
-      let c=target;this.pixelStep=step;
+      const step=this.rasterStep();
+      let c=target,decor=0,baseImages=0;this.pixelStep=step;
+      const frame=pixel&&s===live?this.stats.transition.window:null;
       if(pixel) {
         const pw=Math.ceil(target.canvas.width/step),ph=Math.ceil(target.canvas.height/step);
         if(this.pixelCanvas.width!==pw||this.pixelCanvas.height!==ph){this.pixelCanvas.width=pw;this.pixelCanvas.height=ph;}
         c=this.pixelContext;c.setTransform(target.canvas.width/step/w,0,0,target.canvas.height/step/h,0,0);
       }
+      if(frame&&frame.scale<1){decor=this.windowChrome(c,frame);c.save();this.windowClient(c,frame);}
       c.imageSmoothingEnabled=!pixel;c.imageSmoothingQuality=medium==='ai-gouache'?'high':'low';
       const e = smooth(s.extrusion);
       const palette=this.palette(s.scene), prev=this.palette(s.previousScene);
@@ -1477,18 +1585,28 @@
         gradient.addColorStop(0,`rgba(104,49,121,${e*.5})`); gradient.addColorStop(1,'rgba(9,11,29,0)');
         c.fillStyle=gradient; c.fillRect(0,0,w,h);
       }
-      if(medium==='lunar')this.lunarSky(c);
-      if(medium==='ai-gouache')this.paintedSky(c);
-      this.faces.length = 0;this.cost=0;this.gameplay=false;this.sink=null;this.live=live;
+      // The low incoming side lens sees beyond the finite painted ground.
+      // Underpaint that short handoff with the same valley crop as the far wash.
+      if(medium==='ai-gouache'&&s.sceneTime<1.2){this.prepareSky();c.drawImage(this.art.images.valley,...this.valleyCrop);baseImages++;decor++;}
+      if(medium==='lunar'){this.lunarSky(c);decor+=32;} // 24 stars, Earth (3), limb and two double rims
+      this.faces.length = 0;this.cost=decor;this.gameplay=false;this.sink=null;this.live=live;
       this.world(s);
       if(s!==live && this.modern)this.contactAccents(s,false);
-      this.gameplayWorld(live,showHero);
+      // The outgoing painter has no live OS/Moon/neon hazards of its own.
+      if(s===live||!['desktop','moon','extreme'].includes(live.scene))this.gameplayWorld(live,showHero);
+      if(frame&&frame.scale<1&&s===live) {
+        const point=p=>[frame.x+p[0]*frame.scale,frame.y+p[1]*frame.scale];
+        const bounds=b=>{if(b){[b.left,b.top]=point([b.left,b.top]);[b.right,b.bottom]=point([b.right,b.bottom]);}};
+        const hero=this.stats.hero;if(hero){[hero.x,hero.y]=point([hero.x,hero.y]);hero.pxPerUnit*=frame.scale;bounds(hero.bounds);}
+        for(const p of this.stats.obstacleProbes){p.foot=point(p.foot);p.top=point(p.top);bounds(p.visibleBounds);}
+      }
       // Ground/decal passes avoid average-depth floor polygons cutting through feet.
       // Above-ground meshes retain stable camera-space painter ordering.
       this.faces.sort((a,b)=>a.layer-b.layer || b.depth-a.depth || a.order-b.order);
-      let images=(medium==='ai-gouache'?1:0)+this.drawFaces(c,this.faces);
+      let images=baseImages+this.drawFaces(c,this.faces);
       c.globalAlpha=1;
       if(pixel){
+        if(frame&&frame.scale<1)c.restore();
         c=target;c.save();c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=false;
         c.drawImage(this.pixelCanvas,0,0,this.pixelCanvas.width*step,this.pixelCanvas.height*step);c.restore();images++;
       }
@@ -1519,6 +1637,7 @@
       for (const f of faces) {
         // A cross-medium handoff draws the one incoming hero above the fading world.
         if(f.hero&&this.deferred&&faces===this.faces){this.deferred.push(f);continue;}
+        if(f.sky){c.globalAlpha=1;this.paintedSky(c);images++;continue;}
         if(f.image){c.globalAlpha=f.opacity??1;this.texture(c,f);images+=f.units;continue;}
         if(f.group){for(const part of f.group)fill(part,part.opacity??1);continue;}
         if(f.facets) {
@@ -1566,9 +1685,10 @@
         c.fillStyle=ink;c.fillText(text,w/2,y+1);
       }
       // The original dinosaurOS bars sit below the shared HUD band, never under it.
-      if(this.hudDesktop>.001) {
+      const barAlpha=this.hudDesktop*(s.scene==='desktop'?smooth((s.sceneTime-8)/1.5):1);
+      if(barAlpha>.001) {
         const y=top+size+8;
-        c.save();c.globalAlpha=alpha*this.hudDesktop;
+        c.save();c.globalAlpha=alpha*barAlpha;
         c.fillStyle='#253d72';c.fillRect(0,y,w,27);
         c.fillStyle='#fff';c.textAlign='left';c.font='11px ui-monospace, monospace';
         c.fillText('dinosaurOS  /  workspace '+String(s.success+1).padStart(2,'0'),18,y+18);
@@ -1621,10 +1741,11 @@
       // Readiness is reported immediately; an airborne fallback hero is not replaced mid-jump.
       if(desired==='ai-gouache' && this.currentMedium==='gouache-fallback' && !s.player.grounded)desired=this.currentMedium;
       const reset=this.lastRun!==s.run || s.simTime<(this.lastTime??0);
-      if(reset){this.hudDesktop=0;this.handoff=null;this.lastScenery={};this.currentMedium=desired;this.lastScene=s.scene;this.neonFrom=null;this.foldFrom=null;this.neonFoot=null;this.visual={bend:s.scene==='dream'?this.bend(s):0,lift:s.scene==='desktop'?s.morph*.24:0};}
+      if(reset){this.hudDesktop=0;this.handoff=null;this.lastScenery={};this.currentMedium=desired;this.lastScene=s.scene;this.desktopFrom=null;this.neonFrom=null;this.foldFrom=null;this.neonFoot=null;this.visual={bend:s.scene==='dream'?this.bend(s):0,lift:s.scene==='desktop'?s.morph*.24:0};}
       if(!reset && s.scene!==this.lastScene) {
         // Live handoff anchors: the next medium starts where this hero's feet were.
-        if(s.scene==='extreme')this.neonFrom=this.stats.hero&&this.lastScene==='moon'?{x:clamp(this.stats.hero.x,this.w*.15,this.w*.6),y:clamp(this.stats.hero.y,this.h*.4,this.h-80)}:null;
+        if(s.scene==='desktop'){const h=this.stats.hero;this.desktopFrom=this.lastScene==='dream'&&h?.bounds?{x:h.x,y:h.y,height:h.bounds.bottom-h.bounds.top}:null;}
+        if(s.scene==='extreme'){const h=this.stats.hero;this.neonFrom=this.lastScene==='moon'&&h?.bounds?{x:h.x,y:h.y,height:h.bounds.bottom-h.bounds.top}:null;}
         if(s.scene==='collapse')this.foldFrom=this.lastScene==='extreme'&&this.neonFoot?{...this.neonFoot}:null;
       }
       if(!reset && (desired!==this.currentMedium || (this.handoff && s.scene!==this.lastScene))) {
@@ -1649,6 +1770,7 @@
       // The integer runner ratio is only held while the Chromium sprites are on screen.
       if(desired==='chrome'&&!this.native)this.setNative(Math.floor(devicePixelRatio)||1);
       if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
+      this.stats.transition.window=s.scene==='desktop'?this.desktopFrame(s,this.rasterStep()):null;
       // Both visible gameplay passes use this single current camera and transform.
       this.camera(s);
       const deferHero=!!this.handoff&&!this.handoff.hero;
@@ -1676,7 +1798,7 @@
           else {old.effects.push({...effect});if(old.effects.length>8)old.effects.shift();}
         }
         // Independent outgoing lens for the neon entrance and the eye → ink pullback.
-        const ownCamera=s.scene==='extreme'&&old.scene!=='extreme'||s.scene==='corkscrew'&&old.scene==='track';
+        const ownCamera=s.scene==='desktop'&&old.scene==='dream'||s.scene==='extreme'&&old.scene!=='extreme'||s.scene==='corkscrew'&&old.scene==='track';
         if(ownCamera)this.camera(old,old.nightEyeY);
         this.giantAlpha=this.handoff.medium==='neon-doodle'?1-smooth((s.simTime-this.handoff.start)/.2):1;
         const outgoing=this.renderWorld(old,s,this.handoff.medium,this.blendContext,this.handoff.hero);
@@ -1691,8 +1813,10 @@
           if(desired==='pixel-16') {
             // The incoming 16-bit hero goes through the same nearest-pixel raster, then
             // only its own quad is composited above the fading world (still one hero).
-            images+=this.drawFaces(this.pixelContext,deferred);
-            c.save();c.beginPath();
+            const frame=this.stats.transition.window,pc=this.pixelContext;
+            c.save();pc.save();pc.imageSmoothingEnabled=false;
+            if(frame&&frame.scale<1){this.windowClient(pc,frame);this.windowClient(c,frame);}
+            images+=this.drawFaces(pc,deferred);pc.restore();c.beginPath();
             for(const f of deferred)for(const part of f.group||[f]){const q=part.points;c.moveTo(...q[0]);for(let i=1;i<q.length;i++)c.lineTo(...q[i]);c.closePath();}
             c.clip();c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=false;
             const step=this.pixelStep;c.drawImage(this.pixelCanvas,0,0,this.pixelCanvas.width*step,this.pixelCanvas.height*step);c.restore();images++;
@@ -1705,7 +1829,7 @@
       this.remember(s);
       if(this.art.status!=='ready'&&this.skyImage){this.skyCanvas.width=0;this.skyCanvas.height=0;this.skyImage=null;}
       const bufferPixels=this.blendCanvas.width*this.blendCanvas.height+this.pixelCanvas.width*this.pixelCanvas.height+(this.skyCanvas?this.skyCanvas.width*this.skyCanvas.height:0);
-      this.stats.transition.camera=this.pov?{mode:this.pov.mode,blend:this.pov.blend,...(this.pov.mode==='jelly-side'?{jumpFollow:this.pov.jumpFollow}:{}),eye:this.cam.eye.slice(),target:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:null;
+      this.stats.transition.camera=s.scene==='extreme'?{mode:'vertical-climb',blend:smooth(s.sceneTime/1.35),height:s.extreme.visualHeight,scale:this.extremeScale,origin:[this.cam.cx,this.cam.cy]}:this.pov?{mode:this.pov.mode,blend:this.pov.blend,...(this.pov.jumpFollow!==undefined?{jumpFollow:this.pov.jumpFollow}:{}),eye:this.cam.eye.slice(),target:this.cam.eye.map((n,i)=>n+this.cam.forward[i])}:null;
       this.stats.style=desired;this.art.snapshot(this.stats.assets);this.stats.images=images;
       this.stats.worldResolution=incoming.resolution;
       this.stats.budgets.used=incoming.commands;

@@ -104,7 +104,7 @@ gathers the pack and city into one giant; the Moon then starts from a single bod
 never in the Moon or fold. The sculpted current hero is used only for Jelly, Moon
 and the fold bridge; every other medium has its original hero.
 
-Three cameras change the point of view, not the course. Night moves from the
+The cameras change the point of view, not the course. Night moves from the
 extrusion framing into the voxel dinosaur’s head over 0.90 s. It looks along
 +z with a fixed lens and pitch; its eye rises by exactly the jump height. The
 own body leaves view, then the incoming ink hero is revealed on the pullback.
@@ -121,6 +121,21 @@ the actual bounce height (at most 0.42 units); its pitch and lens stay fixed.
 The roof is open on the camera side so you can see the dino drop below the solid
 underside. Ink settles into this shot in 1.20 s, and Painted returns to its own
 framing in 1.20 s. Reduced motion uses the same side view with no jump follow.
+
+Painted looks down into its storybook garden from **63°**. The billboard and
+contact shadow separate by the projected jump, not an extra screen-space lift.
+The original brushwork continues under the props and the winding path fades
+into the cached distant valley. Dinosaur OS runs its entire 16-bit world in
+one beveled desktop window. The client starts at about 80% on portrait screens
+or 65% in landscape and expands to full size by 9.5 s of simulation time.
+Pause, hearts, score and chapter stay outside; the frame is decorative.
+
+The Moon looks across the flat regolith lane from the dinosaur’s left. Its
+finite-distance lens brings the two cacti into view together, with room for
+the full float. The distant limb is curved scenery, not a curved jump surface.
+The shot settles in 0.85 s, before the first pair spawns. The lens translates
+by 7% of actual jump height (zero in reduced motion).
+
 Reduced motion keeps the physical viewpoints and real jump height without an
 orbit, idle sway, head bob, impact shake or a pulsing lens. The existing
 reduced-motion scenery, landing response and shorter medium dissolve still apply.
@@ -192,8 +207,11 @@ After the Moon, **EXTREME** is the finale:
   a 24-unit cactus. READY shows the 18-tap target, not a misleading input count.
 - A dedicated **neon-doodle** medium: indigo paper, continuous cyan/lime cactus,
   connected magenta/cyan hero, stable hatches, stars and comic boost clouds.
-  The close camera starts with the actual top offscreen, follows the ascent and
-  recorded rewind height, and reserves space for the head and readable HUD.
+  The incoming neon body takes the Moon hero’s foot position and silhouette
+  height, then settles to its close scale during READY. The top starts
+  offscreen. First the hero climbs through a HUD-safe vertical
+  band; then the camera carries the remaining altitude. The floor, altitude
+  marks and cactus move downward; the same mapping runs backward from the tape.
 - Forward WAV encouragement starts near the end of READY and in early ACTIVE,
   never payoff. The first height-24 crossing permanently stops forward speech
   and switches to a truthful contact-pending caption; 18 fresh presses and contact
@@ -233,14 +251,18 @@ There is no service worker or offline cache to install or invalidate.
 Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 7 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
 EXTREME state (forward cue times and first crossing), impact audio counts,
-close-camera/top/hero bounds, and opening/handoff geometry. During the
+close-camera/top/hero bounds, and opening/handoff geometry. During the 3D
 perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
 one unit along the viewing direction (`target`), `mode`, and `blend`. During
-`jelly-side`, `jumpFollow` is the vertical translation of the lens in world units
+`jelly-side` and `lunar-wide`, `jumpFollow` is the vertical translation of the lens in world units
 (zero on the ground and in reduced motion). In these shots each live obstacle probe also has camera-space foot depth `viewZ` and
 `visibleBounds`: viewport-clipped bounds of the emitted cactus geometry, or
 `null` outside view. They exclude the shadow and take-off line and do not claim
-to measure occlusion by other objects. `?debug` additionally exposes
+to measure occlusion by other objects. The `desktop-window` shot also publishes
+`art.transition.window` (client `x,y,w,h` in screen CSS pixels, uniform `scale`,
+and growth `progress`); hero and obstacle probes include this mapping. The
+2D `vertical-climb` camera reports its screen-space `origin`, vertical `scale`
+and recorded visual `height` rather than inventing a 3D eye. `?debug` additionally exposes
 `advance(seconds)` and `freeze(true)` for stepped captures; `?debug&seed=N` makes
 the runner's randomness reproducible. Seed/stepping/freezing mark the run and all
 later restarts in the same page assisted: no best writes, banking or end card.
@@ -257,7 +279,11 @@ two-plus keyboard/touch lap returns, all ink orientations, jelly no-slam failure
 jelly timing windows at 1×/1.8×, moon double credits, desktop window stacks,
 crash/stampede cascade/coalescence→Moon reset, later Chrome damage, cactus
 pass-through, painted big clears, short landscape EXTREME headroom, and pause/mute/missing-asset/no-audio
-fallbacks when syncing.
+fallbacks when syncing. For perspective changes, inspect the low-to-overhead
+paint handoff before the first jump, OS window growth through the full-size
+crash, both Moon cacti at first spawn on a capped-speed phone, and the neon
+height marker on ascent **and** rewind. A viewport bounding box alone does not
+prove that a hazard contributes visible pixels to the composited frame.
 
 ## Source, provenance and maintenance
 
