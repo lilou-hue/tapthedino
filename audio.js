@@ -9,7 +9,7 @@
       this.samples={};this.pendingChrome=null;this.chromePlayed=0;
       // Fetch bytes ahead of the first gesture; decoding waits for the user's AudioContext.
       this.sampleBytes=Object.fromEntries(['press','hit','reached'].map(name=>[name,fetch('assets/chrome-'+name+'.mp3?v=1').then(r=>r.ok?r.arrayBuffer():null).catch(()=>null)]));
-      this.extreme=false;this.pendingJump=null;this.jumpsPlayed=0;
+      this.extreme=false;this.climbStep=-1;this.climbNotes=0;this.treadNotes=0;this.pendingJump=null;this.jumpsPlayed=0;
       this.epoch=0;this.wantPlaying=false;this.pendingFarts=0;this.fartCount=0;this.fartsPlayed=0;this.speechCount=0;this.fartVoices=[];this.speechVoices=[];this.clips={};this.clipStatus='unloaded';
       this.scene = ''; this.cueRun=null;this.cueLap=null;this.cueScene='';this.entryPlayed=false;this.anticipation=false;this.arrangement=0; this.step = 0; this.origin = 0; this.failed = false;
     }
@@ -143,7 +143,7 @@
         const controller=new AbortController();let timer;
         try {
           const buffer=await Promise.race([(async()=>{
-            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=55',{signal:controller.signal});
+            const r=await fetch('assets/audio/extreme/'+name+'.wav?v=56',{signal:controller.signal});
             if(!r.ok)throw new Error('speech unavailable');
             const bytes=await r.arrayBuffer();if(bytes.byteLength>200000)throw new Error('speech too large');
             return this.context.decodeAudioData(bytes);
@@ -178,12 +178,12 @@
     }
     pause() {
       clearTimeout(this.terminalTimer);this.terminalUntil=0;
-      this.epoch++;this.pendingChrome=null;this.pendingFarts=0;this.pendingJump=null;this.stopVoices(true);this.scene='';
+      this.climbStep=-1;this.epoch++;this.pendingChrome=null;this.pendingFarts=0;this.pendingJump=null;this.stopVoices(true);this.scene='';
       this.setPlaying(false).catch(()=>{});
     }
     setExtreme(value) {
       if(this.extreme===value)return;
-      this.extreme=value;this.pendingFarts=0;this.pendingJump=null;
+      this.climbStep=-1;this.extreme=value;this.pendingFarts=0;this.pendingJump=null;
       // Stage-local samples (including reverse speech/fart) cannot cross the exit.
       this.stopVoices(true);
     }
@@ -227,6 +227,7 @@
       if(!this.extreme)return;
       this.stopVoices();this.announce('click-it-reverse',.85);
       this.sample(this.reverseFarts?.[3],'fart',.65,.7);
+      if(this.context && this.wantPlaying)this.tone(this.context.currentTime+.008,620,.63,.074,'triangle',74);
     }
     tone(time,frequency,duration,volume,type='triangle',end=null) {
       const a=this.context;
@@ -308,14 +309,28 @@
       // reset on mute/pause/unlock. Resuming must resync the beat, not replay a drop.
       if(this.cueRun!==s.run || this.cueLap!==s.lap || this.cueScene!==s.scene) {
         this.cueRun=s.run;this.cueLap=s.lap;this.cueScene=s.scene;
-        this.entryPlayed=false;this.anticipation=false;
+        this.entryPlayed=false;this.anticipation=false;this.lastTread=-1;
       }
       const a=this.context;
       if(!a || !this.wantPlaying || this.muted || a.state!=='running')return;
       const speaking=this.speechVoices.length>0;
       this.music.gain.setTargetAtTime(speaking?.28:1,a.currentTime,.04);
       this.fartBus.gain.setTargetAtTime(speaking?.48:1,a.currentTime,.025);
-      if(s.scene==='extreme'){this.scene=s.scene;return;}
+      if(s.scene==='extreme'){
+        this.scene=s.scene;
+        const e=s.extreme;
+        if(s.mode==='running' && e.phase==='active') {
+          // One current subdivision, never catch-up notes. The transport's first
+          // observation after entry or resume only latches the new grid position.
+          const n=Math.floor(e.time/(BEAT/4)),stride=e.progress>.72?1:e.progress>.32?2:4;
+          if(this.climbStep>=0 && n!==this.climbStep && n%stride===0 && e.firstPress!==null) {
+            const pitch=[146.83,185,220,293.66][Math.floor(n/stride)%4]*(e.progress>.72?2:1);
+            if(this.tone(a.currentTime+.006,pitch,.085,.045,'triangle'))this.climbNotes++;
+          }
+          this.climbStep=n;
+        }
+        return;
+      }
       if(s.scene==='collapse') {this.scene=s.scene;return;}
       if(s.mode!=='running' || ['rupture','offline','crash','coalesce','breath'].includes(s.scene)) {
         if(this.scene!==s.scene)this.stopVoices();this.scene=s.scene;return;
@@ -392,13 +407,17 @@
         else if(n%4===3 || (s.scene==='corkscrew' && n%2===1))this.tone(t,bass*[4,6,4.8,3][Math.floor(n/4)%4],desk?.065:.16,.025,'triangle');
         if(pack) {
           const build=Math.min(1,s.sceneTime/16);
+          if(n>this.lastTread && n%(s.echoes>=16?2:4)===0){
+            this.lastTread=n;
+            if(this.tone(t+.024,156,.15,.078,'triangle',124))this.treadNotes++;
+          }
           this.tone(t,bass*[4,4.8,6,8][n%4],.13,.018+build*.028,'triangle');
           if(n%8===0)for(const ratio of [4,4.8,6])this.tone(t,bass*ratio,BEAT*3,.018+build*.01,'triangle');
           if(s.sceneTime>12 && n%2)this.hiss(t,.07,.025,2500);
         }
       }
     }
-    get snapshot() { return { impactSoundCount:this.impactSoundCount,terminalTail:this.terminalUntil>performance.now(),forwardCues:this.forwardCues.map(c=>({...c})),chromePlayed:this.chromePlayed,chromeVoices:[...this.voices].filter(v=>v.kind==='chrome').length,pendingChrome:!!this.pendingChrome,available:!!this.context, state:this.context?.state||'uncreated', muted:this.muted, arrangement:this.arrangement, voices:this.voices.size, fartVoices:this.fartVoices.length+(this.fadingFart&&this.voices.has(this.fadingFart)?1:0), speechVoices:this.speechVoices.length, jumpsPlayed:this.jumpsPlayed, pendingJump:this.pendingJump!==null, fartCount:this.fartCount, fartsPlayed:this.fartsPlayed, speechCount:this.speechCount, pendingFarts:this.pendingFarts, desiredPlaying:this.wantPlaying, clipStatus:this.clipStatus, failed:this.failed, transportBeat:this.context?(this.context.currentTime-this.origin)/BEAT:0 }; }
+    get snapshot() { return { climbNotes:this.climbNotes,treadNotes:this.treadNotes,impactSoundCount:this.impactSoundCount,terminalTail:this.terminalUntil>performance.now(),forwardCues:this.forwardCues.map(c=>({...c})),chromePlayed:this.chromePlayed,chromeVoices:[...this.voices].filter(v=>v.kind==='chrome').length,pendingChrome:!!this.pendingChrome,available:!!this.context, state:this.context?.state||'uncreated', muted:this.muted, arrangement:this.arrangement, voices:this.voices.size, fartVoices:this.fartVoices.length+(this.fadingFart&&this.voices.has(this.fadingFart)?1:0), speechVoices:this.speechVoices.length, jumpsPlayed:this.jumpsPlayed, pendingJump:this.pendingJump!==null, fartCount:this.fartCount, fartsPlayed:this.fartsPlayed, speechCount:this.speechCount, pendingFarts:this.pendingFarts, desiredPlaying:this.wantPlaying, clipStatus:this.clipStatus, failed:this.failed, transportBeat:this.context?(this.context.currentTime-this.origin)/BEAT:0 }; }
   }
   window.DinoAudio=DinoAudio;
 })();

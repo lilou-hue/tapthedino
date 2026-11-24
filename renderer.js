@@ -22,6 +22,9 @@
   const toHero = ([x, y, w]) => [(x - 22) / PX, (41 - y) / PX, w];
   const HERO = [[.5,15.5,.04],[8,21,.17],[15,18.5,.4],[21,12,.36],[22.5,3,.33],[37,.5,.3],[43.5,3,.25],[43.5,8.5,.22],
     [35,10,.25],[39,13,.2],[30,15.5,.28],[27,20,.32],[28.5,26,.4],[25,31,.44],[16,32.5,.44],[8,26,.2]].map(toHero);
+  // Joined ground-shadow profile: keep the sculpted head and tail, add arm and feet.
+  const CAST = [...HERO.slice(0,12),[.44,.92],[.51,.72],[.36,.77],[.28,.86],...HERO.slice(12,14),
+    [.16,.06],[.44,.05],[.48,-.05],[-.01,-.05],[-.13,.37],[-.26,.34],[-.46,.07],[-.28,.06],[-.30,-.04],[-.67,-.04],HERO[14],HERO[15]];
   const HAUNCH = [[11,24],[17,20.5],[23,22],[25.2,28],[21,32.4],[13.5,31]].map(p => toHero([...p,0]));
   const ARM = [[25.5,18.6],[30,19.4],[33.6,21.6],[34.8,24.6],[32.6,24.8],[30.2,22.8],[25.5,23]].map(p => toHero([...p,0]));
   const SPIKES = [[[20.2,13.3],[17.6,7.4],[16.9,16.8]],[[15.6,18.3],[13,11.8],[11.7,19.6]],[[10.4,20.4],[8,15],[7,20.6]]]
@@ -51,7 +54,7 @@
   // Only scenery primitives are remembered; no key enumeration or gameplay copy.
   const SCENERY_FIELDS=['mode','scene','previousScene','sceneTime','simTime','beat','speed','distance',
     'score','combo','multiplier','success','target','health','maxHealth','recovery','lap','variant',
-    'lapEarned','lapScore','banked','impact','burst','waveTime','earned','fallback','projectionBlend',
+    'lapEarned','lapScore','banked','impact','burst','waveTime','slamLandAt','earned','fallback','projectionBlend',
     'extrusion','pending','nextSpawn','serial','sceneDistance','worldRoll','rollFrom','rollTarget',
     'rollTime','morph','morphTarget','lastJumpTime','finalInput','finalJumpTime','finalJumpSerial',
     'dropAt','cascadeCount','echoes','completion','reported','debugAssisted','reducedMotion','run','previousBest','stageConfig'];
@@ -581,7 +584,9 @@
       const edge=mixRGB(base,[12,16,40],.62*e).map(Math.round);
       const accent=mixRGB(base,this.medium==='gummy'?[149,245,215]:this.medium==='lunar'?[150,175,216]:fallback?[244,190,76]:LIME,e);
       const y0=o.y??s.player.height,scale=this.anchor&&this.hero?mix(.87,1,smooth(s.projectionBlend/.35)):1;
-      const squash=this.medium==='gummy'?Math.min(1,1-(1-this.landingScale(s))*2):this.landingScale(s),lean=s.player.stumble>0?-.1:0;
+      const slamAge=s.simTime-s.slamLandAt;
+      const slam=s.scene==='jelly'&&slamAge>=0?Math.sin(clamp(slamAge/.32)*Math.PI*2)*(1-clamp(slamAge/.32)):0;
+      const squash=this.medium==='gummy'?(s.reducedMotion?1:clamp(this.landingScale(s)-slam*.48,.60,1.12)):this.landingScale(s),lean=s.player.stumble>0?-.1:0;
       const at=(z,y,x)=>[x*ext*scale/squash,y0+y*scale*squash,(z+lean*y)*scale];
       const grounded=s.player.grounded,phase=s.distance*1.7;
       const leg=(side,p)=>{
@@ -896,7 +901,35 @@
           this.layer=2;
         }
       }
+      if(s.scene==='track')this.nightPass(s);
       this.rewards(s);
+    }
+    punch(s,kind,strength,commands) {
+      if(s===this.live && commands>0)this.stats.transition.punch={kind,strength,commands};
+    }
+    nightPass(s) {
+      const hit=s.effects.find(e=>e.scene==='track' && e.age<.72);
+      if(!hit)return;
+      const before=this.cost,t=hit.age/.72,fade=smooth(hit.age/.25)*(1-smooth((hit.age-.43)/.29)),side=hit.seed%2?1:-1;
+      const x=side*(s.reducedMotion?0:mix(-1.1,1.5,t)),z=2.5+(s.reducedMotion?0:.75*t);
+      // Light grazes the road; the cast silhouette crosses the pool and kerb.
+      // Six low-alpha bands soften the penumbra (combined opacity < .35).
+      const light=smooth(hit.age/.07)*(1-smooth((hit.age-.10)/.26));
+      this.layer=.8;this.opacity=.066*light;
+      if(light>.001)for(let i=0;i<6;i++){
+        const r=1-i*.09;
+        this.polygon(Array.from({length:36},(_,j)=>{
+          const a=j*Math.PI/18;return [2.88*r*Math.cos(a),.04,3+3.25*r*Math.sin(a)];
+        }),[255,208,139]);
+      }
+      this.layer=1;this.opacity=.45*fade;
+      // A stretched cast (not another actor). Broaden its distant snout so it
+      // still reads through the foreshortening of the low first-person eye.
+      this.polygon(CAST.map(([u,v])=>{
+        const dz=(v-.84)*1.8/(1-(v-.84)*.43);
+        return [x+side*u*(1.65+dz*.41),.055,z+dz+u*.10];
+      }),[2,3,15]);
+      this.opacity=1;this.layer=2;this.punch(s,'overhead-shadow',fade,this.cost-before);
     }
     foldRibbon(s) {
       // The native fold: only the quiet dark ribbon and its one hero return to the page.
@@ -934,12 +967,31 @@
         if(i%3===0){this.opacity=.26;this.polygon([[-2.3,.025,z],[.3,.025,z+.7],[1.7,.025,z+1],[-1.4,.025,z+.4]],[255,255,245]);this.opacity=1;}
       }
       this.layer=2;
+      const age=s.simTime-s.slamLandAt,slam=age>=0 && age<.62;
+      if(slam){
+        // A pressure ring runs along the far candy bank, never across a hazard,
+        // the canopy underside or the take-off ticks on the playable road.
+        const before=this.cost,t=age/.62,r=s.reducedMotion?2.3:.7+5*smooth(t);
+        for(let i=0;i<3;i++){
+          const outer=[],inner=[],size=r*(1-i*.24);
+          for(let j=0;j<=20;j++){
+            const a=-Math.PI/2+j*Math.PI/20;
+            const at=d=>[6.65+Math.cos(a)*d,.07,6.5-(s.reducedMotion?0:s.speed*age*.6)+Math.sin(a)*d*1.48];
+            outer.push(at(size));inner.push(at(Math.max(.08,size-.33)));
+          }
+          this.opacity=(s.reducedMotion?.26:.85)*(1-t);
+          this.polygon(outer.concat(inner.reverse()),i===1?[219,114,173]:[255,252,213]);
+        }
+        this.opacity=1;this.punch(s,'slam-ripple',1-t,this.cost-before);
+      }
       // Keep the near bank open; soft gumdrops line the far side of the track.
       for(let i=0;i<12;i++) {
         const tier=(i+Math.floor(s.distance/8))%3,z=i*8-28-s.distance%8,x=6.6+tier*1.5,h=2.2+tier*.65;
         const kick=this.clearWave(s,z)*.6,drive=0;
         const sway=s.reducedMotion?0:Math.sin(s.simTime*(2.1+drive*.45)+i)*(.10+drive*.07)+Math.sin(kick*5+i)*kick*.65;
-        const jelly=s.reducedMotion?1:1+kick*.42*Math.sin(s.simTime*12+i);
+        const arrival=age-Math.abs(z+s.speed*age)/32;
+        const pressure=slam&&arrival>=0&&arrival<.38?Math.sin(arrival/.38*Math.PI*2)*(1-arrival/.38):0;
+        const jelly=s.reducedMotion?1:1+kick*.42*Math.sin(s.simTime*12+i)+pressure*.52;
         // Soft, rooted gumdrop caps with rounded shoulders, not floating crystals.
         const stem=[[-.24,0],[-.32,.12],[-.30,h*.55],[.30,h*.55],[.32,.12],[.24,0]];
         this.polygon(stem.map(([a,b])=>[x,b,z+a]),[108,178,157]);
@@ -1102,6 +1154,23 @@
         this.box(Math.cos(a)*6.2,Math.sin(a)*6.2,7+i*5.4-s.sceneDistance%5.4,1.4,.65,2.4,strand?[255,238,173]:[68,164,171],a);
       }
       this.layer=2;
+      const hit=s.effects.find(e=>e.scene==='corkscrew' && e.age<.31);
+      if(!hit)return;
+      const before=this.cost,t=hit.age/.31,alpha=1-smooth(t);
+      // Impact marks are printed into the turning tunnel, *behind* its hero.
+      // An unearned closing quarter-turn has no ink impression.
+      if(s.reducedMotion){
+        for(const r of [1,.78]){
+          this.opacity=.12*alpha;
+          this.polygon(Array.from({length:28},(_,i)=>{const a=i*Math.PI/14;return [Math.cos(a)*1.95*r,1+Math.sin(a)*1.65*r,1.1];}),[215,56,54]);
+        }
+      }else for(let i=0;i<22;i++){
+        const a=(i+.22*Math.sin(i*2.3+hit.seed))*Math.PI/11,r=2.2+(i%3)*.52+t*1.1;
+        const at=(a,r,z)=>[Math.cos(a)*r,1+Math.sin(a)*r,z];
+        this.opacity=alpha*(i%4?.82:.91);
+        this.polygon([at(a-.055,5.8+(i%3),1),at(a,r,1.8),at(a+.07,6.6,1)],i%4?[39,30,38]:[215,56,54],i%4?.55:1);
+      }
+      this.opacity=1;this.punch(s,'inkburst',alpha,this.cost-before);
     }
     dream(s) {
       if(this.medium==='ai-gouache'){this.paintedWorld(s);return;}
@@ -1115,16 +1184,46 @@
         this.windowBox(-7-i*.65-left*.45,.2+i*.45+left*.8,18+i*5,4.4,3.1,i);
         this.windowBox(8+i*.55+right*.45,.3+i*.9+right*.8,28+i*4,4.4,3.1,i+1);
       }
+      const before=this.cost;
       for(const w of s.windows) {
         if(w.age<0)continue;
         const wave=this.clearWave(s,w.z),pop=smooth(w.age/.35)*(1+wave*.10);
-        const fan=(s.variant?Math.sin(w.seed*.65)*3:0)+Math.sign(w.x)*wave*.45;
-        this.windowBox(w.x+fan,w.y+(1-pop)*2+(s.variant?(w.seed%3)*1.3:0),w.z,3.3*pop,2.5*pop,w.seed);
-        if(s.variant===2 && w.seed%3===0)this.windowBox(w.x+fan,w.y+3,w.z+1,2.1*pop,1.6*pop,w.seed+1);
+        const far=smooth((w.z-20)/5)*smooth((Math.abs(w.x)-7)/2);
+        const width=(2.8+w.seed%4*.36+far*(w.seed%3===0?4.8:1.2))*pop;
+        const fan=Math.sign(w.x)*(wave*.45+(s.variant?Math.sin(w.seed*.65)*1.5:0));
+        const x=Math.sign(w.x)*Math.max(Math.abs(w.x+fan),1.65+width/2);
+        this.windowBox(x,w.y+(1-pop)*2+(s.variant?(w.seed%3)*1.3:0),w.z,width,width*(.6+w.seed%3*.075),w.seed);
+        if(s.variant===2 && w.seed%3===0)this.windowBox(x,w.y+3,w.z+1,2.1*pop,1.6*pop,w.seed+1);
         this.layer=-1;
         this.box(w.x,-.8+w.y*.3,w.z,3.5,1.5,2.2,[116,145,159]);
         this.layer=2;
       }
+      this.punch(s,'window-avalanche',clamp(s.windows.length/40),this.cost-before);
+    }
+    roadImpacts(s) {
+      // Painted on the underside of the translucent orange lane. Staggered
+      // three-toed impressions travel with the ground beneath each pair of columns.
+      if(s.echoes<2)return;
+      const before=this.cost,columns=Math.min(3,Math.ceil((s.echoes-1)/4));
+      const sole=[[-.27,-.35],[.05,-.52],[.31,-.31],[.29,.02],[.52,.47],[.18,.30],[.05,.72],[-.08,.32],[-.39,.57],[-.27,.08]];
+      this.layer=2.55;
+      for(let col=0;col<columns;col++)for(const side of [-1,1])for(let row=0;row<4;row++){
+        const z=3+row*3.5-(s.sceneDistance+(side+1)*.86+col*.62)%3.5;
+        const x=side*(1.87+col*1.41),weight=.50+.12*columns;
+        this.opacity=.44*smooth((15-z)/4);
+        this.polygon(sole.map(([u,v])=>[x+side*u*weight,-.022,z+v*1.2]),[108,51,81]);
+      }
+      for(const hit of s.effects)if(hit.scene==='stampede' && hit.age<.9){
+        for(let row=0;row<3;row++)for(const side of [-1,1]){
+          const t=hit.age-row*.09;if(t<0)continue;
+          const z=2.4+row*3.1-s.speed*hit.age,reach=(.7+columns*.43)*(s.reducedMotion?1:smooth(t/.12));
+          const at=(u,v)=>[side*(1.38+u*reach),-.028,z+v];
+          this.opacity=(1-smooth(t/.9))*(s.reducedMotion?.42:.88);
+          this.polygon([[0,0],[.54,.32],[.47,.62],[1.5,.88],[.63,.50],[.67,.23]].map(([u,v])=>at(u,v)),[93,42,71]);
+          this.polygon([[.49,.42],[.77,.12],[1.02,.07],[.81,.22],[.62,.53]].map(([u,v])=>at(u,v)),[93,42,71]);
+        }
+      }
+      this.opacity=1;this.layer=2;this.punch(s,'road-impacts',clamp(s.echoes/32),this.cost-before);
     }
     stampede(s,gather=0) {
       const k=1-gather;if(k<.02)return;
@@ -1213,7 +1312,7 @@
       if(s.scene==='corkscrew')this.corkscrew(s);
       else if(s.scene==='dream')this.dream(s);
       else if(s.scene==='desktop'||s.scene==='crash')this.desktop(s);
-      else if(s.scene==='stampede') {this.pack(s);this.stampede(s);}
+      else if(s.scene==='stampede') {this.roadImpacts(s);this.pack(s);this.stampede(s);}
       else if(s.scene==='coalesce')this.ending(s);
       this.rewards(s);
     }
@@ -1393,6 +1492,16 @@
         if(fill){c.fillStyle=fill;c.fill(path);commands++;}
         c.strokeStyle=colour;c.lineWidth=width;c.stroke(path);commands++;
       };
+      const startPunch=commands,intensity=smooth(e.visualHeight/e.targetHeight);
+      if(!s.reducedMotion && intensity>.015){
+        c.strokeStyle=`rgba(135,108,225,${.16+.38*intensity})`;c.lineWidth=1+intensity*1.5;c.beginPath();
+        // Fixed to altitude, not the render clock: on rewind the SAME marks streak back.
+        for(let i=0;i<44;i++){
+          const y=cy-(i*.88-.45)*k,x=w*(i%2?.83+(i%5)*.029:.04+(i%4)*.037),length=k*(.52+intensity*(.8+(i%3)*.29));
+          if(y>=0 && y-length<h){c.moveTo(x,y);c.lineTo(x,y-length);}
+        }c.stroke();commands++;
+      }
+      const streaks=commands-startPunch;
       // World coordinates become one continuous, rounded outline, including arms.
       // Anatomy uses the same contact-plane map as the hero's feet and top marker.
       // A neon world leaving for the fold lets its giant go first (sky last).
@@ -1412,7 +1521,7 @@
         curve(2.45,20.5,3.85,20.4,3.83,19.2);line(3.8,15.6);
         curve(3.8,13.5,2.6,13.1,1.08,13.2);curve(.97,9,1.3,4,1.1,0);path.closePath();
         // Three cheap stroke layers give neon edge light without shadowBlur.
-        stroke(path,'#163c43','#2b777c',8);stroke(path,null,cyan,2.8);
+        stroke(path,'#163c43','#2b777c',8+2.6*intensity);stroke(path,null,cyan,2.8+.8*intensity);
         c.save();c.clip(path);
         c.strokeStyle=lime;c.lineWidth=1.5;c.beginPath();
         for(let i=0;i<3;i++) {
@@ -1442,7 +1551,18 @@
       for(let n=0;n<=36;n+=2){const y=cy-n*k;if(y<0||y>h)continue;
         c.moveTo(w*.06,y);c.lineTo(w*.06+(n%4?8:18),y);}
       c.stroke();commands++;
-      const unit=this.extremeUnit;
+      const unit=this.extremeUnit,hold=e.cleared && e.phase==='payoff' && e.time<=e.contactHold;
+      let halo=0;
+      if(hold){
+        const x=cx+e.visualZ*.45*kx,y=cy-e.visualHeight*k-unit*1.2;
+        c.save();c.globalAlpha=s.reducedMotion?.22:.76;c.strokeStyle='#fff2ae';c.lineWidth=s.reducedMotion?3:2.3;
+        c.beginPath();c.ellipse(x,y,unit*1.83,unit*1.65,-.22,0,Math.PI*2);c.stroke();commands++;halo++;
+        if(!s.reducedMotion){c.beginPath();for(let i=0;i<12;i++){
+          const a=i*Math.PI/6,dx=unit*Math.cos(a),dy=unit*Math.sin(a);
+          c.moveTo(x+2*dx,y+1.83*dy);c.lineTo(x+(2.27+(i%2)*.25)*dx,y+(2.08+(i%2)*.25)*dy);
+        }c.stroke();commands++;halo++;}c.restore();
+      }
+      this.punch(s,hold?'contact-halo':'vertical-climb',intensity,halo+streaks);
       const hero=(height,travel,opacity=1)=>{
         const x=cx+travel*.45*kx,y=cy-height*k;
         const recoil=s.reducedMotion?0:Math.sin(clamp(e.recoilAge/.22)*Math.PI)*(1-clamp(e.recoilAge/.22));
@@ -1452,7 +1572,7 @@
         stroke(spikes,lime,ink,.06);
         // One authored silhouette connects tail, haunch, neck, snout and head.
         const body=new Path2D('M -.55 -.45 C -1.05 -.5 -1.36 -.94 -1.42 -1.42 C -.91 -1.08 -.65 -1.22 -.29 -1.18 C -.28 -1.65 -.02 -1.88 .27 -1.94 C .18 -2.57 .61 -2.67 1.16 -2.49 C 1.46 -2.42 1.63 -2.04 1.51 -1.77 L .73 -1.7 C .86 -1.39 .64 -1.05 .45 -.84 C .17 -.47 -.22 -.35 -.55 -.45 Z');
-        stroke(body,'#793b92','#593f8b',.16);stroke(body,null,pink,.06);
+        stroke(body,'#793b92','#593f8b',.16);stroke(body,null,pink,.06+.024*intensity);
         const belly=new Path2D('M .48 -1.62 C .60 -1.26 .31 -.81 -.17 -.72 C -.51 -.64 -.65 -.78 -.7 -.86');
         stroke(belly,null,cyan,.055);
         const stride=Math.sin(e.pose*10)*(s.reducedMotion?.08:.17);
@@ -1469,8 +1589,13 @@
         c.restore();return {left:x-1.53*unit,right:x+1.72*unit,top:y-2.72*unit,bottom:y+.08*unit};
       };
       const tape=e.history,index=e.phase==='rewind'?Math.floor((1-e.rewindPosition)*(tape.length-1)):tape.length-1;
-      if(showHero && ['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
-        const f=tape[Math.max(0,index-n*6)];hero(f[0],f[2]-n*.8,.08+(3-n)*.05);
+      if(showHero && !hold && ['payoff','rewind'].includes(e.phase))for(let n=3;n>=1;n--) {
+        // Reflect the outgoing trail through the last recorded frame until enough
+        // tape has unwound for each ghost to trail the reversed motion instead.
+        const lag=n*6,end=tape.length-1,back=e.phase==='rewind';
+        const j=back?end-Math.abs(end-index-lag):index-lag,f=tape[Math.max(0,j)];
+        const offset=back?clamp((index+lag-end)/lag):1;
+        hero(f[0],f[2]-n*.8*offset,.08+(3-n)*.05);
       }
       const puffs=e.phase==='rewind'?[e.puff]:s.effects;
       for(const puff of puffs)if(puff && puff.age<.65 && (e.phase==='rewind'||puff.puff)) {
@@ -1770,6 +1895,7 @@
       // The integer runner ratio is only held while the Chromium sprites are on screen.
       if(desired==='chrome'&&!this.native)this.setNative(Math.floor(devicePixelRatio)||1);
       if(this.native && desired!=='chrome' && !this.handoff)this.setNative(null);
+      this.stats.transition.punch=null;this.live=s;
       this.stats.transition.window=s.scene==='desktop'?this.desktopFrame(s,this.rasterStep()):null;
       // Both visible gameplay passes use this single current camera and transform.
       this.camera(s);
@@ -1791,6 +1917,7 @@
         // and enter(). Keep that actual event in its original medium, not the
         // quiet incoming world. Copy only on handoff creation, after aging the
         // previous frame: new events retain their exact simulation age.
+        if(this.handoff.start===s.simTime && old.scene==='jelly')old.slamLandAt=s.slamLandAt;
         if(this.handoff.start===s.simTime)for(const effect of s.effects) {
           if(effect.scene!==old.scene)continue;
           const previous=old.effects.find(e=>e.scene===effect.scene&&e.seed===effect.seed&&!!e.slam===!!effect.slam&&!!e.puff===!!effect.puff);

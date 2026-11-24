@@ -95,11 +95,15 @@ landing, 04 Something remembers, 05 Dinosaur OS, 06 Every one of us, 07 A little
 | collapse | `vector-3d` (native fold) | sculpted hero on the dark ribbon, folding into the page |
 
 The original journey's scenery, earned transformations, landing responses and
-**medium-specific 136 BPM score** are restored: each night clear grows a monument,
-ink landings turn the world, painted clears bend the valley path, desktop clears
-open five-window stacks (pool of 24) and lift the workspace, stampede clears
-double the echo pack and break the next three towers. The coalescence (2.2 s)
-gathers the pack and city into one giant; the Moon then starts from a single body
+**medium-specific 136 BPM score** are restored: each night clear grows a
+monument and sends an overhead shadow through a pool of warm light. Earned ink landings strike the rib tunnel with ink wedges as it turns;
+Jelly slam *landings* compress the pink hero and pulse through the far gumdrop
+bank, never the collision floor or canopy. Painted clears still bend the valley
+path. Each desktop clear opens a bigger fan of document windows (5 up to 17,
+40 retained) and lifts the workspace until the existing crash. Stampede clears
+double the echo pack and break the next three towers; three-toed impressions,
+branching cracks and pitched footfalls build along the outside of the glass lane.
+The coalescence (2.2 s) gathers the pack and city into one giant; the Moon then starts from a single body
 (echoes, city and windows are reset). The giant is drawn only in the coalescence,
 never in the Moon or fold. The sculpted current hero is used only for Jelly, Moon
 and the fold bridge; every other medium has its original hero.
@@ -203,8 +207,8 @@ Existing best/share storage keys are retained; best scores are **not reset**.
 
 After the Moon, **EXTREME** is the finale:
 
-- 1.5 s explicit **MASH FAST** ready counter, then a fixed **4.5 s** climb toward
-  a 24-unit cactus. READY shows the 18-tap target, not a misleading input count.
+- 1.5 s explicit **MASH FAST** ready counter, then a fixed **7.5 s** climb toward
+  a 24-unit cactus. READY shows the 30-tap target, not a misleading input count.
 - A dedicated **neon-doodle** medium: indigo paper, continuous cyan/lime cactus,
   connected magenta/cyan hero, stable hatches, stars and comic boost clouds.
   The incoming neon body takes the Moon hero’s foot position and silhouette
@@ -212,20 +216,27 @@ After the Moon, **EXTREME** is the finale:
   offscreen. First the hero climbs through a HUD-safe vertical
   band; then the camera carries the remaining altitude. The floor, altitude
   marks and cactus move downward; the same mapping runs backward from the tape.
-- Forward WAV encouragement starts near the end of READY and in early ACTIVE,
-  never payoff. The first height-24 crossing permanently stops forward speech
-  and switches to a truthful contact-pending caption; 18 fresh presses and contact
+- Forward WAV encouragement starts near the end of READY and at four spaced
+  points in ACTIVE, never payoff. The first height-24 crossing permanently stops forward speech
+  and switches to a truthful contact-pending caption; 30 fresh presses and contact
   are still required. A later height dip cannot restart speech.
-- At least **18 fresh presses and height 24** are required at contact.
-  Sustained 4.5–5 Hz tapping works; the old 2.5 Hz pace fails. Holding a key
-  cannot repeat inputs, and a late burst cannot teleport through the unchanged
-  8-unit/s ascent envelope. Height remains capped at 30.
+- At least **30 fresh presses and height 24** are required at contact.
+  A steady 4 Hz from GO works; fewer than 30 presses cannot clear. Holding a key
+  cannot repeat inputs, and a late burst cannot teleport through the shared
+  ascent envelope: `min(30, 1.35 + 3.9 × seconds since first active press)`.
+  Height 24 is first reachable about 5.81 s after liftoff, never a win by itself.
 - A miss is fatal at contact, regardless of hearts or recovery. Success awards
-  exactly 150 points once, followed by 1.4 s payoff and 2.2 s visual/audio rewind.
+  exactly 150 points once. The first 0.14 s of the 1.4 s payoff holds the
+  contact pose in a neon halo and rests the music (fresh puff inputs still work);
+  the chord and fly-past follow. The 2.2 s rewind
+  retraces the whole ascent, hold and fly-past. The full sequence lasts 12.6 s.
 - EXTREME's timing, height and difficulty are identical on every lap. It does not
   inherit the world-speed increase.
 - Comic boost puffs, the cactus face and rewind use bounded geometry/effect pools
-  and a maximum 240-frame scalar presentation tape, not replayed gameplay.
+  and a bounded 30 Hz scalar presentation tape (271 frames maximum, including
+  the payoff endpoint), not replayed gameplay. Altitude markings, vertical light
+  streaks and edge weight follow visual height in both directions. Reduced
+  motion omits the streaks; the musical build adds subdivisions, not gain.
 
 Farts occur **only during EXTREME**; ordinary jumps use short synth cues, jelly boings/drops, and moon airy glides. Each medium keeps its original landing cadence and arrangement; crash and coalescence are silent beats. Chrome phases retain
 Chromium press/reached samples, with no extra jump beep or clear chime; collisions
@@ -250,8 +261,11 @@ There is no service worker or offline cache to install or invalidate.
 
 Production `DINO_DEBUG.state` is a read-only frozen snapshot. Version 7 includes
 `speed`, `speedMultiplier`, `approachTTC`, `distance`, `clearedTail`, pause state,
-EXTREME state (forward cue times and first crossing), impact audio counts,
-close-camera/top/hero bounds, and opening/handoff geometry. During the 3D
+EXTREME state (forward cue times, first crossing, climb rate, hold and tape
+length), `slamLandAt`, impact audio counts, close-camera/top/hero bounds, and
+opening/handoff geometry. `art.transition.punch` describes the current incoming
+accent, its strength and its emitted drawing commands; it is null without a
+contributing accent. During the 3D
 perspective shots, `art.perspective` (also `art.transition.camera`) reports the world-space `eye`, a point
 one unit along the viewing direction (`target`), `mode`, and `blend`. During
 `jelly-side` and `lunar-wide`, `jumpFollow` is the vertical translation of the lens in world units

@@ -31,7 +31,9 @@
   // Lap one's flat view: Chromium's 47px T-rex is the hero's 2.2 world units.
   const UNIT = 47 / 2.2, RUN_FRAMES = [88,132];
   const WORLD_SPEED = 11.2, APPROACH = 1.35;
-  const EXTREME = {activeDuration:4.5,minPresses:18};
+  const EXTREME = {activeDuration:7.5,minPresses:30,climbRate:3.9,climbBase:1.35,ceiling:30};
+  const TAPE_CAP = Math.ceil((EXTREME.activeDuration+1.4)*30)+4;
+  const ascentLimit = e => e.firstPress===null?0:Math.min(e.ceiling,e.climbBase+e.climbRate*(e.time-e.firstPress));
   // Authored long/short rhythms, rotated by scene and lap; never stacked spawns.
   // Even at the speed cap, 1 s leaves ~.14 s after the unchanged jump arc.
   const GAP_RHYTHMS = [
@@ -98,7 +100,7 @@
       mode:'idle', scene:'offline', previousScene:'offline', sceneTime:0, simTime:0, beat:0,
       speed:WORLD_SPEED, speedMultiplier:1, approachTTC:APPROACH, distance:0, score:0, combo:0, multiplier:1, success:0, target:3,
       health:MAX_HEALTH, maxHealth:MAX_HEALTH, recovery:0,
-      lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0, waveTime:-100,
+      lap:1, variant:0, lapEarned:0, lapScore:0, banked:false, effects:[], impact:0, burst:0, slamLandAt:-100,waveTime:-100,
       earned:0, fallback:0, transitions:[], projectionBlend:0, extrusion:0,
       obstacles:[], clearedTail:[], monuments:[], windows:[], city:[], echoes:1, cascadeCount:0, pending:0, nextSpawn:2.7, serial:0, phraseSpawn:0,
       sceneDistance:0, worldRoll:0,rollFrom:0,rollTarget:0,rollTime:1,rollRest:0,spawnStopped:false,stageConfig:null, morph:0, morphTarget:0, lastJumpTime:-100, finalInput:false, finalJumpTime:0, finalJumpSerial:null,
@@ -144,7 +146,7 @@
     Object.assign(s,{success:0,target:2,lapEarned:0,lapScore:0,nextSpawn:.65,
       pending:0,combo:0,multiplier:1,morph:0,morphTarget:0,echoes:1,cascadeCount:0,
       finalInput:false,finalJumpTime:0,finalJumpSerial:null,extreme:null,extremeCleared:false,dropAt:0,
-      impact:0,burst:0,waveTime:-100,lastJumpTime:-100});
+      impact:0,burst:0,slamLandAt:-100,waveTime:-100,lastJumpTime:-100});
     s.obstacles.length=0;s.monuments.length=0;s.windows.length=0;s.city.length=0;s.effects.length=0;
     Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0,stumble:0});
     s.clearedTail.length=0;s.chromeJump=false;s.ticks=0;s.flatAnchor=null;
@@ -188,8 +190,8 @@
       if(e.phase==='active') {
         e.acceptedPresses++;e.boostAt=s.sceneTime;
         if(e.firstPress===null)e.firstPress=e.time;
-        // An 8-unit/second ascent envelope makes late bursts fail visibly, not via a hidden time gate.
-        s.player.height=Math.min(30,1.35+8*(e.time-e.firstPress),s.player.height+1.35);
+        // Both the boost and ballistic step respect the same time-since-liftoff ceiling.
+        s.player.height=Math.min(ascentLimit(e),s.player.height+1.35);
         s.player.velocity=Math.min(7,s.player.velocity+4.5);
         s.player.grounded=false;s.player.jumps++;s.lastJumpTime=s.simTime;
       }
@@ -275,6 +277,7 @@
       s.morphTarget=0;
       if(scene==='track'){s.flatAnchor=null;if(s.revealAt===null)s.revealAt=s.simTime;}
       if(scene==='desktop'){s.windows.length=0;s.morph=0;}
+      if(scene==='jelly')s.slamLandAt=-100;
       // After the coalescence, the moon starts from one body: no echoes, city or windows.
       if(scene==='moon'){s.echoes=1;s.city.length=0;s.windows.length=0;}
     } else if(scene==='crash') {
@@ -290,7 +293,7 @@
       Object.assign(s.player,{height:0,velocity:0,grounded:true,buffer:0});
       s.morph=0;s.morphTarget=0;s.monuments.length=0;s.effects.length=0;s.impact=0;s.burst=0;
       s.extreme={...EXTREME,phase:'ready',time:0,targetHeight:24,ttc:EXTREME.activeDuration,acceptedPresses:0,
-        firstPress:null,firstCross:null,forwardCues:[],hit:false,progress:0,cleared:false,contact:false,cactusZ:24,
+        contactHold:.14,firstPress:null,firstCross:null,forwardCues:[],hit:false,progress:0,cleared:false,contact:false,cactusZ:24,
         caption:'MASH FAST · 1.5s · TAPS START AT GO',cue:-1,
         rewindPosition:0,history:[[0,24,0,0,10,10,0,0,0]],sample:0,visualHeight:0,visualZ:0,pose:0,
         boostAt:-100,recoilAge:10,puff:null};
@@ -314,10 +317,15 @@
     if(s.scene==='track') growMonument();
     else if(s.scene==='dream') s.morphTarget=s.success;
     else if(s.scene==='desktop') {
-      // Each earned desktop clear opens a stack of five windows (bounded pool).
+      // Each earned stack spreads into overlapping, increasingly tall document fans.
       s.morphTarget=s.success;
-      for(let i=0;i<5;i++) s.windows.push({x:(i%2?-1:1)*(3.7+i*.6),y:i*.55,z:8+i*2.4,age:-i*.09,seed:s.success*5+i});
-      if(s.windows.length>24)s.windows.splice(0,s.windows.length-24);
+      const count=Math.min(17,3+2*s.success);
+      for(let i=0;i<count;i++) {
+        const row=i>>1,side=(i+s.success)%2?-1:1;
+        s.windows.push({x:side*(4.1+row*.75+(s.success%3)*.6),y:.35+row*(.6+.16*(s.success%3)),
+          z:11+row*3.25+(s.success%3)*2,age:-row*.055,seed:s.success*19+i});
+      }
+      if(s.windows.length>40)s.windows.splice(0,s.windows.length-40);
     } else if(s.scene==='stampede') {
       // Earned echoes double the pack (cap 32/40) and break the next three towers.
       s.echoes=Math.min(s.variant?40:32,2**s.success);s.waveTime=s.simTime;
@@ -461,7 +469,9 @@
     if(s.scene!=='extreme')jumpIfReady();
     if(!p.grounded && s.scene!=='extreme') {
       p.velocity-=physics().gravity*dt;p.height+=p.velocity*dt;
-      if(p.height<=0) {p.height=0;p.velocity=0;p.grounded=true;justLanded=true;landed();jumpIfReady();}
+      if(p.height<=0) {
+        if(s.scene==='jelly'&&p.slam)s.slamLandAt=s.simTime;
+        p.height=0;p.velocity=0;p.grounded=true;justLanded=true;landed();jumpIfReady();}
     }
     }
     if(inHandoff()) {
@@ -539,7 +549,7 @@
   // Fixed-time collision; the small scalar tape is presentation only, never simulation replay.
   function updateExtreme(dt) {
     const e=s.extreme,p=s.player;e.time+=dt;
-    if(e.phase!=='rewind')e.recoilAge=s.sceneTime-e.boostAt;
+    if(e.phase!=='rewind' && !(e.phase==='payoff' && e.time<=e.contactHold))e.recoilAge=s.sceneTime-e.boostAt;
     if(e.phase==='ready') {
       e.caption='MASH FAST · '+Math.max(0,1.5-e.time).toFixed(1)+'s · TAPS START AT GO';
       if(e.time>=1.2 && e.cue<0){e.cue=0;forwardCue('click-it',1.35);}
@@ -548,17 +558,17 @@
     }
     if(e.phase==='active') {
       p.velocity=Math.max(-9,p.velocity-5*dt);
-      p.height=clamp(p.height+p.velocity*dt,0,e.firstPress===null?0:Math.min(30,1.35+8*(e.time-e.firstPress)));
+      p.height=clamp(p.height+p.velocity*dt,0,ascentLimit(e));
       if(p.height===0){p.velocity=0;p.grounded=true;}
       e.ttc=Math.max(0,e.activeDuration-e.time);e.cactusZ=24*e.ttc/e.activeDuration;
       e.progress=clamp(p.height/e.targetHeight);
       if(e.firstCross===null && p.height>=e.targetHeight){e.firstCross=s.simTime;audio.stopForward();}
       if(e.firstCross===null) {
-        const cue=e.time>=1.65?2:e.time>=.55?1:0;
-        if(cue>e.cue){e.cue=cue;forwardCue(cue===1?'click-harder':'click-it',1.35);}
+        const cue=e.time>=4.9?4:e.time>=3.3?3:e.time>=1.65?2:e.time>=.55?1:0;
+        if(cue>e.cue){e.cue=cue;forwardCue(cue%2?'click-harder':'click-it',1.35);}
       }
       // A height crossing is not a win, and cannot re-arm speech after a dip.
-      e.caption=e.firstCross!==null?'KEEP GOING · CONTACT PENDING':e.time<.55?'GO! Click it!':e.time<1.65?'Click harder!':e.time<2.6?'Click it!':'KEEP TAPPING · REACH THE TOP';
+      e.caption=e.firstCross!==null?'KEEP GOING · CONTACT PENDING':e.time<.55?'GO! Click it!':e.time<1.65?'Click harder!':e.time<3.3?'Click it!':e.time<4.9?'Click harder!':'KEEP TAPPING · REACH THE TOP';
       if(e.time>=e.activeDuration && !e.contact) {
         e.contact=true;
         if(e.acceptedPresses<e.minPresses || e.firstPress===null || p.height<e.targetHeight) {
@@ -568,13 +578,13 @@
         e.cleared=true;s.extremeCleared=true;s.finalInput=true;s.success=1;
         // Exactly one capped bonus, never points per press or a fallback success.
         s.score+=150;s.lapScore+=150;s.earned++;s.lapEarned++;
-        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;e.caption='CLEARED · TOP NOTCH!';audio.stopForward();audio.payoff();
+        e.phase='payoff';e.time=0;e.clearHeight=p.height;e.cue=-1;e.caption='CLEARED · TOP NOTCH!';audio.stopVoices();
       }
     } else if(e.phase==='payoff') {
-      const t=clamp(e.time/1.4);
+      const t=clamp((e.time-e.contactHold)/(1.4-e.contactHold));
+      if(e.time>=e.contactHold && e.time-dt<e.contactHold)audio.payoff();
       e.visualZ=8*t*t;e.cactusZ=-12*t*t;
       p.height=e.clearHeight+(30-e.clearHeight)*Math.sin(t*Math.PI/2);
-      if(e.time>=1.4){e.phase='rewind';e.time=0;e.cue=-1;audio.rewind();}
     } else if(e.phase==='rewind') {
       e.rewindPosition=clamp(e.time/2.2);
       const index=(1-e.rewindPosition)*(e.history.length-1),i=Math.floor(index),f=index-i;
@@ -588,10 +598,16 @@
       if(e.time>=2.2){Object.assign(p,{height:0,velocity:0,grounded:true,buffer:0});enter('collapse','extreme-cleared');}
       return;
     }
-    e.visualHeight=p.height;e.pose+=dt*(e.phase==='payoff'?1+e.time*8:1);
+    e.visualHeight=p.height;
+    const held=e.phase==='payoff' && e.time<=e.contactHold;
+    if(!held)e.pose+=dt*(e.phase==='payoff'?1+clamp((e.time-e.contactHold)/(1.4-e.contactHold))*1.4*8:1);
+    const tapeEnd=e.phase==='payoff' && e.time>=1.4;
     e.sample+=dt;
-    if(e.sample>=1/30){e.sample-=1/30;if(e.history.length<240)e.history.push([e.visualHeight,e.cactusZ,e.visualZ,e.pose,e.recoilAge,e.puff?.age??10,e.puff?.height??0,e.puff?.z??0,e.puff?.seed??0]);}
-    if(e.phase==='rewind'){e.caption='REWIND ◀◀';return;}
+    if(e.sample>=1/30 || tapeEnd){
+      if(e.sample>=1/30)e.sample-=1/30;
+      if(e.history.length<TAPE_CAP)e.history.push([e.visualHeight,e.cactusZ,e.visualZ,e.pose,e.recoilAge,e.puff?.age??10,e.puff?.height??0,e.puff?.z??0,e.puff?.seed??0]);
+    }
+    if(tapeEnd){e.phase='rewind';e.time=0;e.cue=-1;e.caption='REWIND ◀◀';audio.rewind();}
   }
   function forwardCue(name,rate) {
     const e=s.extreme;
@@ -754,13 +770,13 @@
       earned:s.earned,fallback:s.fallback,transitions:s.transitions.map(t=>({...t})),
       simTime:s.simTime,beat:s.beat,playerHeight:s.player.height,player:{...s.player},
       nextTTC:next?next.z/s.speed:null,spawnIn:s.nextSpawn,score:s.score,combo:s.combo,echoes:s.echoes,
-      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,rollTarget:s.rollTarget,rollProgress:s.rollTime,floorNormal:[Math.sin(s.worldRoll),-Math.cos(s.worldRoll)],physics:{...physics()},stagePattern:{spawned:s.phraseSpawn,stopped:s.spawnStopped,pending:s.pending},morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,activeDuration:s.extreme.activeDuration,minPresses:s.extreme.minPresses,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
+      projectionBlend:s.projectionBlend,extrusion:s.extrusion,worldRoll:s.worldRoll,rollTarget:s.rollTarget,rollProgress:s.rollTime,floorNormal:[Math.sin(s.worldRoll),-Math.cos(s.worldRoll)],physics:{...physics()},stagePattern:{spawned:s.phraseSpawn,stopped:s.spawnStopped,pending:s.pending},morph:s.morph,finalInput:s.finalInput,finalJumpTime:s.finalJumpTime,finalJumpSerial:s.finalJumpSerial,waitingForFinalInput:false,extremeCleared:s.extremeCleared,inputCount:s.inputCount,extreme:s.extreme?{hit:s.extreme.hit,firstCross:s.extreme.firstCross,forwardCues:s.extreme.forwardCues.map(c=>({...c})),phase:s.extreme.phase,phaseTime:s.extreme.time,climbRate:s.extreme.climbRate,contactHold:s.extreme.contactHold,historyCap:TAPE_CAP,pose:s.extreme.pose,visualZ:s.extreme.visualZ,cueIndex:s.extreme.cue,contact:s.extreme.contact,height:s.player.height,visualHeight:s.extreme.visualHeight,targetHeight:s.extreme.targetHeight,ttc:s.extreme.ttc,activeDuration:s.extreme.activeDuration,minPresses:s.extreme.minPresses,acceptedPresses:s.extreme.acceptedPresses,progress:s.extreme.progress,cleared:s.extreme.cleared,rewindPosition:s.extreme.rewindPosition,caption:s.extreme.caption,cactusZ:s.extreme.cactusZ,historyFrames:s.extreme.history.length}:null,cascadeCount:s.cascadeCount,
       entityCounts:{obstacles:s.obstacles.length,monuments:s.monuments.length,windows:s.windows.length,towers:s.city.length,brokenTowers:s.city.filter(t=>t.brokenAt!==null).length,echoes:s.echoes,effects:s.effects.length,transitions:s.transitions.length,polygons:renderer.stats.polygons},
-      obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
+      slamLandAt:s.slamLandAt,obstacles:s.obstacles.map(o=>({...o})),completion:s.completion,reported:s.reported,
       debugAssisted:s.debugAssisted,reducedMotion,paused,run:s.run,previousBest:s.previousBest,
       audio:audio.snapshot,
       art:{perspective:camera,extreme:renderer.stats.extreme?{...renderer.stats.extreme,hero:{...renderer.stats.extreme.hero}}:null,style:renderer.stats.style,assets:{...renderer.stats.assets},images:renderer.stats.images,
-        transition:{...renderer.stats.transition,camera},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
+        transition:{...renderer.stats.transition,camera,punch:renderer.lastRun===s.run&&!inOpening()?renderer.stats.transition.punch??null:null},obstacleProbes:(renderer.stats.obstacleProbes||[]).map(o=>({...o,foot:o.foot.slice(),top:o.top.slice()})),
         worldResolution:renderer.stats.worldResolution?renderer.stats.worldResolution.slice():[],budgets:{...renderer.stats.budgets}},
       timing:{frames:frameCount,meanFrameMs:frameCount?frameSum/frameCount:0,meanRenderMs:frameCount?renderSum/frameCount:0,slowFrames,maxPolygons:renderer.stats.maxPolygons},
       // Additive (opening/handoff): the page runner, its geometry and the one hero.

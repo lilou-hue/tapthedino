@@ -42,7 +42,7 @@
     async load() {
       const timeout=setTimeout(()=>{if(this.status==='loading'){this.status='fallback';this.fallbackReason='painted assets delayed';}},10000);
       try {
-        const manifestURL=new URL('assets/painted/manifest.json?v=55',location.href);
+        const manifestURL=new URL('assets/painted/manifest.json?v=56',location.href);
         const response=await fetch(manifestURL);
         if(!response.ok)throw new Error('manifest HTTP '+response.status);
         const manifest=await response.json();
@@ -53,7 +53,7 @@
           // Decode off the main thread before use, so no first painted frame pays for it.
           const image=new Image();image.onload=()=>{if(!image.naturalWidth)reject(new Error('empty '+file));else {this.loaded++;(image.decode?image.decode().catch(()=>{}):Promise.resolve()).then(()=>resolve(image));}};
           image.onerror=()=>reject(new Error('image unavailable: '+file));
-          const imageURL=new URL(file,manifestURL);imageURL.search='?v=55';image.src=imageURL.href;
+          const imageURL=new URL(file,manifestURL);imageURL.search='?v=56';image.src=imageURL.href;
         });
         const entries=Object.entries(manifest.atlases);
         const loaded=await Promise.all([...entries.map(async([key,atlas])=>{
